@@ -354,6 +354,7 @@ if (hostOs.isMacOsX) {
             "-DCMAKE_SYSTEM_NAME=Linux",
             "-DCMAKE_SYSTEM_PROCESSOR=aarch64",
             "-DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc",
+            "-DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++",
         ),
     )
     // Cross-compile the MinGW static library with the
@@ -364,6 +365,7 @@ if (hostOs.isMacOsX) {
             "-DCMAKE_SYSTEM_NAME=Windows",
             "-DCMAKE_SYSTEM_PROCESSOR=x86_64",
             "-DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc",
+            "-DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++",
         ),
     )
 }

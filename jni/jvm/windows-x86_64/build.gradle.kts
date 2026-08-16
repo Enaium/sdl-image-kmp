@@ -8,6 +8,7 @@
  * by the sdl-kmp project, which exports the SDL3 symbols), so libsdl_jni.dll
  * must be loaded first.
  */
+import java.util.zip.ZipFile
 import org.gradle.internal.os.OperatingSystem
 
 plugins {
@@ -17,6 +18,16 @@ plugins {
 
 group = rootProject.group
 version = rootProject.version
+
+// Resolves the sdl-kmp JVM artifact that bundles libsdl_jni.dll; the JNI
+// library is linked against it so its SDL3 exports resolve at load time
+// (see jni/CMakeLists.txt: the SDL_JNI_DLL branch links the actual DLL
+// instead of compiling a second SDL3 copy, which would collide with the
+// SDL3::SDL3 alias target).
+val sdlKmpJni by configurations.creating
+dependencies {
+    sdlKmpJni("cn.enaium.sdl:sdl-kmp-jni-jvm-windows-x86_64:1.0.7")
+}
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -78,6 +89,7 @@ val configureJniLibrary by tasks.registering(Exec::class) {
     val javaHome = System.getProperty("java.home") ?: System.getenv("JAVA_HOME") ?: ""
     val jniInclude = if (javaHome.isNotEmpty()) "$javaHome/include" else ""
     val makeGenerator = if (System.getenv("MSYSTEM") != null) "MSYS Makefiles" else "MinGW Makefiles"
+    val sdlJniDll = extractSdlJniDll(buildDir)
     val args = mutableListOf(
         cmakeExecutable,
         rootProject.file("jni").absolutePath,
@@ -93,7 +105,29 @@ val configureJniLibrary by tasks.registering(Exec::class) {
         // PATH.
         "-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -static-libstdc++",
     )
+    if (sdlJniDll != null) {
+        args += "-DSDL_JNI_DLL=${sdlJniDll.absolutePath}"
+    }
     commandLine(args)
+}
+
+/** Extracts libsdl_jni.dll from the sdl-kmp JNI artifact, or null when unavailable. */
+fun extractSdlJniDll(buildDir: File): File? {
+    val jar = sdlKmpJni.files.firstOrNull { it.name.endsWith(".jar") }
+        ?: return null
+    var entry: Pair<ByteArray, String>? = null
+    ZipFile(jar).use { zip ->
+        val e = zip.entries().asSequence()
+            .firstOrNull { it.name.endsWith("libsdl_jni.dll") } ?: return@use
+        entry = zip.getInputStream(e).readBytes() to e.name
+    }
+    val data = entry ?: return null
+    val target = File(buildDir, "sdl-jni/" + data.second.substringAfterLast('/'))
+    target.parentFile.mkdirs()
+    if (!target.isFile || target.length() != data.first.size.toLong()) {
+        target.writeBytes(data.first)
+    }
+    return target
 }
 
 val buildJniLibrary by tasks.registering(Exec::class) {
