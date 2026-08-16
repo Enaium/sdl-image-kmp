@@ -108,9 +108,15 @@ val configureJniLibrary by tasks.registering(Exec::class) {
         // Extract libsdl_jni.dll from the sdl-kmp artifact and generate its
         // import library with gendef + dlltool (execution time only: the
         // tools only exist on Windows hosts, where this task runs).
-        extractSdlJniDll(buildDir)?.let { dll ->
-            args += "-DSDL_JNI_IMPLIB=${generateImportLib(dll, buildDir).absolutePath}"
+        val dll = extractSdlJniDll(buildDir)
+        check(dll != null) {
+            "could not extract libsdl_jni.dll; " +
+                "resolved sdl-kmp jni files: ${sdlKmpJni.files}"
         }
+        val implib = generateImportLib(dll, buildDir)
+        // Forward slashes: backslashes in -D values can be mangled by CMake.
+        args += "-DSDL_JNI_IMPLIB=${implib.absolutePath.replace('\\', '/')}"
+        println("SDL_JNI_IMPLIB=${implib.absolutePath}")
     }
     commandLine(args)
 }
