@@ -121,10 +121,13 @@ val configureJniLibrary by tasks.registering(Exec::class) {
  * dll's exports are converted with gendef + dlltool first.
  */
 fun generateImportLib(dll: File, buildDir: File): File {
-    val def = File(buildDir, "sdl-jni/${dll.nameWithoutExtension}.def")
-    val implib = File(buildDir, "sdl-jni/libsdl_jni.dll.a")
-    runProcess("gendef", listOf(dll.absolutePath), buildDir)
-    runProcess("dlltool", listOf("-d", def.absolutePath, "-l", implib.absolutePath, "-D", dll.name), buildDir)
+    val workDir = File(buildDir, "sdl-jni")
+    // gendef writes <name>.def next to the dll in its working directory.
+    runProcess("gendef", listOf(dll.absolutePath), workDir)
+    val def = File(workDir, "${dll.nameWithoutExtension}.def")
+    check(def.isFile) { "gendef did not produce $def" }
+    val implib = File(workDir, "libsdl_jni.dll.a")
+    runProcess("dlltool", listOf("-d", def.absolutePath, "-l", implib.absolutePath, "-D", dll.name), workDir)
     check(implib.isFile) { "dlltool did not produce $implib" }
     return implib
 }

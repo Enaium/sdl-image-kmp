@@ -9,12 +9,13 @@
 #
 # Usage: cmake -DAR=<ar> -DRANLIB=<ranlib> -DOUTPUT=<out.a>
 #              [-DINPUTS="a.a;b.a;..."] [-DINPUT_GLOB="<glob pattern>"]
+#              [-DINPUT_GLOB_RECURSE="<recursive glob pattern>"]
 #              -P merge_archives.cmake
 #
-# INPUTS are explicit archives; INPUT_GLOB (a CMake glob pattern, or several
-# patterns separated by ';') is expanded at BUILD time — this runs inside a
-# build-time custom command, so archives produced by other targets of the
-# same build are already present.
+# INPUTS are explicit archives; INPUT_GLOB/INPUT_GLOB_RECURSE (CMake glob
+# patterns, expanded recursively for the latter) are expanded at BUILD time —
+# this runs inside a build-time custom command, so archives produced by other
+# targets of the same build are already present.
 #
 # Object files are renamed with a per-archive prefix so identically named
 # objects from different libraries never collide during extraction.
@@ -25,7 +26,7 @@ endif()
 if(NOT DEFINED RANLIB)
     set(RANLIB ranlib)
 endif()
-if(NOT DEFINED OUTPUT OR (NOT DEFINED INPUTS AND NOT DEFINED INPUT_GLOB))
+if(NOT DEFINED OUTPUT OR (NOT DEFINED INPUTS AND NOT DEFINED INPUT_GLOB AND NOT DEFINED INPUT_GLOB_RECURSE))
     message(FATAL_ERROR "OUTPUT and INPUTS/INPUT_GLOB are required")
 endif()
 
@@ -33,6 +34,10 @@ foreach(PATTERN IN LISTS INPUT_GLOB)
     file(GLOB GLOB_MATCHES "${PATTERN}")
     list(APPEND INPUTS ${GLOB_MATCHES})
 endforeach()
+if(DEFINED INPUT_GLOB_RECURSE)
+    file(GLOB_RECURSE RECURSE_MATCHES "${INPUT_GLOB_RECURSE}")
+    list(APPEND INPUTS ${RECURSE_MATCHES})
+endif()
 
 # Deduplicate inputs by content: some vendored libraries install a
 # compatibility copy alongside the real archive (e.g. libpng.a is a copy of

@@ -108,7 +108,7 @@ add_custom_command(
         -DRANLIB=${CMAKE_RANLIB}
         -DOUTPUT=${SDLIMAGE_KMP_MERGED_ARCHIVE}
         "-DINPUTS=$<TARGET_FILE:SDL3_image-static>"
-        "-DINPUT_GLOB=${CMAKE_CURRENT_BINARY_DIR}/SDL_image/external/*/*.a"
+        "-DINPUT_GLOB_RECURSE=${CMAKE_CURRENT_BINARY_DIR}/SDL_image/external/*.a"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/merge_archives.cmake
     DEPENDS SDL3_image-static
     COMMENT "Merging SDL3_image static library and vendored dependencies for Kotlin/Native"
