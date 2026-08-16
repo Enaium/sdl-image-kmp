@@ -165,8 +165,7 @@ jobs:
           name: test-reports-linux
           path: |
             sdl-image-kmp/build/reports/tests
-            examples/image_renderer/build/reports
-            examples/image_renderer/build/konan
+            examples/image_renderer/build
           if-no-files-found: ignore
 
   test-android:
