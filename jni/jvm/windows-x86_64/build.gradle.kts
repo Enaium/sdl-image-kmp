@@ -4,11 +4,10 @@
  * /cn/enaium/sdl/image/native/windows-x86_64/, which ImageNativeLoader
  * (in :sdl-image-kmp's jvmMain) extracts and System.load()s at runtime.
  *
- * The library references SDL3 symbols resolved from libsdl_jni.dll (shipped
- * by the sdl-kmp project, which exports the SDL3 symbols), so libsdl_jni.dll
- * must be loaded first.
+ * On Windows libsdl_jni.dll does not export SDL3 symbols, so SDL3 is compiled
+ * statically into this library (a second SDL3 copy in the process; see
+ * jni/CMakeLists.txt for the details and limitations).
  */
-import java.util.zip.ZipFile
 import org.gradle.internal.os.OperatingSystem
 
 plugins {
@@ -18,16 +17,6 @@ plugins {
 
 group = rootProject.group
 version = rootProject.version
-
-// Resolves the sdl-kmp JVM artifact that bundles libsdl_jni.dll; the JNI
-// library is linked against it so its SDL3 exports resolve at load time
-// (see jni/CMakeLists.txt: the SDL_JNI_DLL branch links the actual DLL
-// instead of compiling a second SDL3 copy, which would collide with the
-// SDL3::SDL3 alias target).
-val sdlKmpJni by configurations.creating
-dependencies {
-    sdlKmpJni("cn.enaium.sdl:sdl-kmp-jni-jvm-windows-x86_64:1.0.7")
-}
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -104,69 +93,7 @@ val configureJniLibrary by tasks.registering(Exec::class) {
         // PATH.
         "-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -static-libstdc++",
     )
-    doFirst {
-        // Extract libsdl_jni.dll from the sdl-kmp artifact and generate its
-        // import library with gendef + dlltool (execution time only: the
-        // tools only exist on Windows hosts, where this task runs). The
-        // command line is set here so the extracted path can be appended
-        // (commandLine() copies its arguments at call time).
-        val dll = extractSdlJniDll(buildDir)
-        check(dll != null) {
-            "could not extract libsdl_jni.dll; " +
-                "resolved sdl-kmp jni files: ${sdlKmpJni.files}"
-        }
-        val implib = generateImportLib(dll, buildDir)
-        // Forward slashes: backslashes in -D values can be mangled by CMake.
-        args += "-DSDL_JNI_IMPLIB=${implib.absolutePath.replace('\\', '/')}"
-        println("SDL_JNI_IMPLIB=${implib.absolutePath}")
-        commandLine(args)
-    }
-}
-
-/**
- * Generates the import library (libsdl_jni.dll.a) for the extracted dll.
- * x86_64 MinGW ld cannot link directly against a DLL (unlike i386), so the
- * dll's exports are converted with gendef + dlltool first.
- */
-fun generateImportLib(dll: File, buildDir: File): File {
-    val workDir = File(buildDir, "sdl-jni")
-    // gendef writes <name>.def next to the dll in its working directory.
-    runProcess("gendef", listOf(dll.absolutePath), workDir)
-    val def = File(workDir, "${dll.nameWithoutExtension}.def")
-    check(def.isFile) { "gendef did not produce $def" }
-    val implib = File(workDir, "libsdl_jni.dll.a")
-    runProcess("dlltool", listOf("-d", def.absolutePath, "-l", implib.absolutePath, "-D", dll.name), workDir)
-    check(implib.isFile) { "dlltool did not produce $implib" }
-    return implib
-}
-
-fun runProcess(command: String, args: List<String>, workDir: File) {
-    val process = ProcessBuilder(listOf(command) + args)
-        .directory(workDir)
-        .redirectErrorStream(true)
-        .start()
-    val output = process.inputStream.bufferedReader().readText()
-    val exit = process.waitFor()
-    check(exit == 0) { "$command failed (exit $exit): " + output }
-}
-
-/** Extracts libsdl_jni.dll from the sdl-kmp JNI artifact, or null when unavailable. */
-fun extractSdlJniDll(buildDir: File): File? {
-    val jar = sdlKmpJni.files.firstOrNull { it.name.endsWith(".jar") }
-        ?: return null
-    var entry: Pair<ByteArray, String>? = null
-    ZipFile(jar).use { zip ->
-        val e = zip.entries().asSequence()
-            .firstOrNull { it.name.endsWith(".dll") } ?: return@use
-        entry = zip.getInputStream(e).readBytes() to e.name
-    }
-    val data = entry ?: return null
-    val target = File(buildDir, "sdl-jni/" + data.second.substringAfterLast('/'))
-    target.parentFile.mkdirs()
-    if (!target.isFile || target.length() != data.first.size.toLong()) {
-        target.writeBytes(data.first)
-    }
-    return target
+    commandLine(args)
 }
 
 val buildJniLibrary by tasks.registering(Exec::class) {

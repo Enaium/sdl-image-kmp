@@ -14,27 +14,28 @@ endif()
 
 # Builds the JNI shared library (libsdl_image_jni) for the JVM target.
 #
-# SDL3 is NOT linked: a single SDL3 instance per process is required, because
-# SDL3 validates its objects (SDL_Texture, SDL_Surface, ...) with magic
-# numbers against its own object registry - a second copy would reject every
-# object created by the first. SDL_image (with the vendored zlib/libpng/
-# libwebp/libtiff and the stb-based loaders) is compiled statically, and its
-# SDL3 symbols are resolved at runtime from libsdl_jni, the JNI library of
-# the sdl-kmp JVM artifact:
+# SDL3 is NOT linked on macOS/Linux: a single SDL3 instance per process is
+# required, because SDL3 validates its objects (SDL_Surface, SDL_Texture,
+# SDL_Renderer, ...) against a per-copy magic value and rejects objects
+# created by another copy. SDL_image (with the vendored zlib/libpng/libwebp/
+# libtiff and the stb-based loaders) is compiled statically, and its SDL3
+# symbols are resolved at runtime from libsdl_jni, the JNI library of the
+# sdl-kmp JVM artifact (which is loaded first by the Kotlin Jni object):
 #
 #  - macOS/Linux: the symbols stay undefined in libsdl_image_jni and are
 #    resolved at dlopen time from libsdl_jni, which exports them (SDL3 is
-#    compiled with default visibility there). libsdl_jni must therefore be
-#    loaded first; the Kotlin Jni object enforces this.
-#  - Windows: MinGW's linker refuses undefined symbols in DLLs, so the
-#    build links the import library of libsdl_jni.dll (generated from the
-#    dll extracted from the sdl-kmp JVM artifact by the Gradle build with
-#    gendef + dlltool and passed as SDL_JNI_IMPLIB; x86_64 ld cannot link
-#    against a DLL directly): its exports become import entries and resolve
-#    at load time. When SDL_JNI_IMPLIB is not provided (local developer
-#    builds without the sdl-kmp jar), SDL3 is compiled and linked in as a
-#    fallback (two copies: works for standalone use, but cross-copy SDL3
-#    objects are rejected).
+#    compiled with default visibility there).
+#  - Windows: libsdl_jni.dll does NOT export the SDL3 symbols (SDL3 is
+#    compiled into it as a static library, only the Java_* JNI entry points
+#    are exported), so importing them is impossible. SDL3 is therefore
+#    compiled statically into libsdl_image_jni, giving the process two SDL3
+#    copies. Everything within one copy is self-consistent (SDL_image
+#    surfaces/textures are created and operated on by this library's own
+#    JNI functions), and SDL_IOStream objects have no magic validation, so
+#    sdl-kmp streams passed to IMG_Load_IO and friends still work. Only
+#    sdl-kmp objects with magic validation (e.g. a renderer passed to
+#    IMG_LoadTexture) are rejected, exactly like the TTF bindings' foreign
+#    surfaces.
 if(NOT DEFINED SDL_SOURCE_DIR)
     set(SDL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../includes/SDL")
 endif()
@@ -42,11 +43,23 @@ if(NOT DEFINED SDLIMAGE_SOURCE_DIR)
     set(SDLIMAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../includes/SDL_image")
 endif()
 
-# Fake SDL3 targets so SDL_image's CMake configures without building SDL3.
-add_library(SDL3::Headers INTERFACE IMPORTED)
-set_target_properties(SDL3::Headers PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${SDL_SOURCE_DIR}/include")
-add_library(SDL3::SDL3 INTERFACE IMPORTED)
+# On Windows SDL3 is compiled first (below) so its SDL3::Headers/SDL3::SDL3
+# targets exist for SDL_image's CMake; elsewhere fake targets are provided.
+if(WIN32)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${SDL_SOURCE_DIR} SDL)
+else()
+    # Fake SDL3 targets so SDL_image's CMake configures without building SDL3.
+    add_library(SDL3::Headers INTERFACE IMPORTED)
+    set_target_properties(SDL3::Headers PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${SDL_SOURCE_DIR}/include")
+    add_library(SDL3::SDL3 INTERFACE IMPORTED)
+endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(SDLIMAGE_VENDORED ON CACHE BOOL "" FORCE)
@@ -109,10 +122,10 @@ endif()
 # SDL3_image-static's link interface propagates the vendored zlib/libpng/
 # libwebp/libtiff archives and the ImageIO frameworks on Apple. The archive
 # is referenced by file path (not as a target) so SDL3 stays out of the link
-# (see the top of this file); that also skips the interface libraries, so the
-# vendored archives are merged in explicitly (merge_archives.cmake, globbed
-# at build time) into a single archive that is linked by file path, keeping
-# SDL3 out of the link.
+# on macOS/Linux (see the top of this file); that also skips the interface
+# libraries, so the vendored archives are merged in explicitly
+# (merge_archives.cmake, globbed at build time) into a single archive that
+# is linked by file path.
 set(SDLIMAGE_JNI_MERGED_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/libSDL3_image_merged.a")
 add_custom_command(
     OUTPUT ${SDLIMAGE_JNI_MERGED_ARCHIVE}
@@ -132,10 +145,11 @@ add_custom_target(sdl_image_jni_merged DEPENDS ${SDLIMAGE_JNI_MERGED_ARCHIVE})
 target_link_libraries(sdl_image_jni PRIVATE ${SDLIMAGE_JNI_MERGED_ARCHIVE})
 add_dependencies(sdl_image_jni sdl_image_jni_merged)
 
-if(WIN32 AND DEFINED SDL_JNI_IMPLIB AND EXISTS "${SDL_JNI_IMPLIB}")
-    # Linking the import library resolves the SDL3 symbols as import entries
-    # (the DLL itself is loaded at runtime, first, by the Kotlin Jni object).
-    target_link_libraries(sdl_image_jni PRIVATE "${SDL_JNI_IMPLIB}")
+if(WIN32)
+    # SDL3 was compiled above; link it statically (second copy, see the top
+    # of this file). SDL3-static's interface pulls in the Windows system
+    # libraries it needs.
+    target_link_libraries(sdl_image_jni PRIVATE SDL3-static)
 elseif(APPLE)
     # Resolve the SDL3 symbols at runtime from libsdl_jni (loaded first, see
     # Jni.kt) instead of failing the link.
@@ -149,16 +163,6 @@ elseif(UNIX AND NOT APPLE)
     # GNU ld allows undefined symbols in shared libraries by default; the
     # SDL3 symbols are resolved from libsdl_jni at dlopen time.
     target_link_libraries(sdl_image_jni PRIVATE -lm -ldl -lpthread)
-elseif(WIN32)
-    # Fallback (no SDL_JNI_IMPLIB provided): compile and link SDL3 itself.
-    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-    set(SDL_STATIC ON CACHE BOOL "" FORCE)
-    set(SDL_TEST OFF CACHE BOOL "" FORCE)
-    set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
-    set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
-    add_subdirectory(${SDL_SOURCE_DIR} SDL)
-    target_link_libraries(sdl_image_jni PRIVATE SDL3-static)
 endif()
 
 if(WIN32)
