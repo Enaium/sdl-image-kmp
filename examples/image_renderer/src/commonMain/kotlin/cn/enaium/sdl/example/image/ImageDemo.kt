@@ -119,7 +119,7 @@ class ImageDemo(
     fun frame(): Boolean {
         if (maxFrames > 0 && frames >= maxFrames) return false
 
-        when (val event = SDL.pollEvent() ?: return true) {
+        when (val event = SDL.pollEvent()) {
             is SDLEvent.Quit -> return false
             is SDLEvent.Window ->
                 if (event.type == SDLWindowEventType.CLOSE_REQUESTED) return false
