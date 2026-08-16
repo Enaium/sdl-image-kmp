@@ -76,11 +76,13 @@ jobs:
         run: ./gradlew --no-daemon :sdl-image-kmp:macosArm64Test
 
       - name: Run example (JVM, headless)
+        timeout-minutes: 10
         run: >
           SDL_VIDEO_DRIVER=dummy ./gradlew --no-daemon
           :examples:image_renderer:jvmRun
 
       - name: Run example (macosArm64, headless)
+        timeout-minutes: 15
         run: >
           SDL_VIDEO_DRIVER=dummy ./gradlew --no-daemon
           :examples:image_renderer:runDebugExecutableMacosArm64
@@ -145,27 +147,18 @@ jobs:
       - name: Run native tests (linuxX64)
         run: ./gradlew --no-daemon :sdl-image-kmp:linuxX64Test
 
+      - name: Run example (linuxX64, headless)
+        timeout-minutes: 10
+        run: >
+          SDL_VIDEO_DRIVER=dummy ./gradlew --no-daemon
+          :examples:image_renderer:runDebugExecutableLinuxX64
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-linux
           path: sdl-image-kmp/build/reports/tests
-          if-no-files-found: ignore
-
-      - name: Run example (linuxX64, headless)
-        run: >
-          SDL_VIDEO_DRIVER=dummy ./gradlew --no-daemon --info
-          :examples:image_renderer:linkDebugExecutableLinuxX64 2>&1 | grep -iE "error|undefined|duplicate" | head -40
-
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports-linux
-          path: |
-            sdl-image-kmp/build/reports/tests
-            examples/image_renderer/build
           if-no-files-found: ignore
 
   test-android:
