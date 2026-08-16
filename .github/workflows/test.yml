@@ -145,6 +145,14 @@ jobs:
       - name: Run native tests (linuxX64)
         run: ./gradlew --no-daemon :sdl-image-kmp:linuxX64Test
 
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-linux
+          path: sdl-image-kmp/build/reports/tests
+          if-no-files-found: ignore
+
       - name: Run example (linuxX64, headless)
         run: >
           SDL_VIDEO_DRIVER=dummy ./gradlew --no-daemon
