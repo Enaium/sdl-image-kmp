@@ -83,6 +83,7 @@ val configureJniLibrary by tasks.registering(Exec::class) {
         rootProject.file("jni").absolutePath,
         "-G", makeGenerator,
         "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-DJNI_INCLUDE_DIR=$jniInclude",
         "-DJNI_INCLUDE_DIR_PLATFORM=$jniInclude/win32",
         // DLLs are RUNTIME outputs in CMake, not LIBRARY outputs.

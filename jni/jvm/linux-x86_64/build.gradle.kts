@@ -77,6 +77,7 @@ val configureJniLibrary by tasks.registering(Exec::class) {
         cmakeExecutable,
         rootProject.file("jni").absolutePath,
         "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-DJNI_INCLUDE_DIR=$jniInclude",
         "-DJNI_INCLUDE_DIR_PLATFORM=$jniInclude/linux",
         "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${outDir.absolutePath}",
