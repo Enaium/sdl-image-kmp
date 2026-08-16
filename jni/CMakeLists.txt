@@ -14,28 +14,32 @@ endif()
 
 # Builds the JNI shared library (libsdl_image_jni) for the JVM target.
 #
-# SDL3 is NOT linked on macOS/Linux: a single SDL3 instance per process is
-# required, because SDL3 validates its objects (SDL_Surface, SDL_Texture,
-# SDL_Renderer, ...) against a per-copy magic value and rejects objects
-# created by another copy. SDL_image (with the vendored zlib/libpng/libwebp/
-# libtiff and the stb-based loaders) is compiled statically, and its SDL3
-# symbols are resolved at runtime from libsdl_jni, the JNI library of the
-# sdl-kmp JVM artifact (which is loaded first by the Kotlin Jni object):
+# SDL3 is compiled statically into libsdl_image_jni on Linux and Windows,
+# giving the process two SDL3 copies (sdl-kmp's libsdl_jni carries its own).
+# This is required because the SDL3 symbols cannot be imported from
+# libsdl_jni at runtime on those platforms:
 #
-#  - macOS/Linux: the symbols stay undefined in libsdl_image_jni and are
-#    resolved at dlopen time from libsdl_jni, which exports them (SDL3 is
-#    compiled with default visibility there).
-#  - Windows: libsdl_jni.dll does NOT export the SDL3 symbols (SDL3 is
-#    compiled into it as a static library, only the Java_* JNI entry points
-#    are exported), so importing them is impossible. SDL3 is therefore
-#    compiled statically into libsdl_image_jni, giving the process two SDL3
-#    copies. Everything within one copy is self-consistent (SDL_image
-#    surfaces/textures are created and operated on by this library's own
-#    JNI functions), and SDL_IOStream objects have no magic validation, so
-#    sdl-kmp streams passed to IMG_Load_IO and friends still work. Only
-#    sdl-kmp objects with magic validation (e.g. a renderer passed to
-#    IMG_LoadTexture) are rejected, exactly like the TTF bindings' foreign
-#    surfaces.
+#  - Windows: libsdl_jni.dll does not export the SDL3 symbols at all (SDL3
+#    is compiled into it as a static library; only the Java_* JNI entry
+#    points are exported), so linking against it or its import library
+#    leaves every SDL3 reference undefined.
+#  - Linux: the JVM dlopens libsdl_jni.so with RTLD_LOCAL, so its SDL3
+#    exports are not in the global scope that a second library's undefined
+#    symbols resolve against; dlopen/lazy binding fails at the first use.
+#
+# Everything within one copy is self-consistent (SDL_image surfaces are
+# created and operated on by this library's own JNI functions), and
+# SDL_IOStream objects have no magic validation, so sdl-kmp streams passed
+# to IMG_Load_IO and friends still work across copies. Only sdl-kmp objects
+# with magic validation (e.g. a renderer passed to IMG_LoadTexture, or a
+# surface passed to IMG_Save*) are rejected, exactly like the TTF bindings'
+# foreign surfaces.
+#
+# On macOS the SDL3 symbols stay undefined in libsdl_image_jni and are
+# resolved at runtime from libsdl_jni: the dylib is linked with
+# -undefined dynamic_lookup, and dyld's flat lookup finds the symbols in the
+# already-loaded libsdl_jni (which exports them, since SDL3 is built with
+# default visibility there).
 if(NOT DEFINED SDL_SOURCE_DIR)
     set(SDL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../includes/SDL")
 endif()
@@ -43,9 +47,10 @@ if(NOT DEFINED SDLIMAGE_SOURCE_DIR)
     set(SDLIMAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../includes/SDL_image")
 endif()
 
-# On Windows SDL3 is compiled first (below) so its SDL3::Headers/SDL3::SDL3
-# targets exist for SDL_image's CMake; elsewhere fake targets are provided.
-if(WIN32)
+# On Linux/Windows SDL3 is compiled first (below) so its SDL3::Headers/
+# SDL3::SDL3 targets exist for SDL_image's CMake; on macOS fake targets are
+# provided and SDL3 is resolved at runtime from libsdl_jni.
+if(WIN32 OR (UNIX AND NOT APPLE))
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
     set(SDL_STATIC ON CACHE BOOL "" FORCE)
     set(SDL_TEST OFF CACHE BOOL "" FORCE)
@@ -145,10 +150,10 @@ add_custom_target(sdl_image_jni_merged DEPENDS ${SDLIMAGE_JNI_MERGED_ARCHIVE})
 target_link_libraries(sdl_image_jni PRIVATE ${SDLIMAGE_JNI_MERGED_ARCHIVE})
 add_dependencies(sdl_image_jni sdl_image_jni_merged)
 
-if(WIN32)
+if(WIN32 OR (UNIX AND NOT APPLE))
     # SDL3 was compiled above; link it statically (second copy, see the top
-    # of this file). SDL3-static's interface pulls in the Windows system
-    # libraries it needs.
+    # of this file). SDL3-static's interface pulls in the system libraries
+    # it needs.
     target_link_libraries(sdl_image_jni PRIVATE SDL3-static)
 elseif(APPLE)
     # Resolve the SDL3 symbols at runtime from libsdl_jni (loaded first, see
@@ -159,10 +164,6 @@ elseif(APPLE)
         "-framework ApplicationServices"
         "-framework Foundation"
         objc)
-elseif(UNIX AND NOT APPLE)
-    # GNU ld allows undefined symbols in shared libraries by default; the
-    # SDL3 symbols are resolved from libsdl_jni at dlopen time.
-    target_link_libraries(sdl_image_jni PRIVATE -lm -ldl -lpthread)
 endif()
 
 if(WIN32)
