@@ -1,0 +1,23 @@
+package = sdl_image
+headers = SDL3_image/SDL_image.h
+compilerOpts = -std=c11 -DSDL_MAIN_HANDLED
+
+# Platform-specific linker options (suffixes are Kotlin/Native family names,
+# lowercase: osx/ios/tvos/linux/mingw). These are baked into the produced
+# klib and applied when the consumer's final binary is linked.
+#
+# Only the SDL_image-specific requirements are listed here; the SDL3 system
+# libraries/frameworks come from the sdl-kmp klib, which the consumer always
+# links (the sdl-image-kmp bindings use the cn.enaium.sdl types).
+#
+# The vendored format backends (zlib/libpng/libwebp/libtiff) are merged into
+# the embedded libSDL3_image.a by the native CMake build, so nothing else is
+# needed. The ImageIO backend (IMG_ImageIO.m) uses the system image
+# frameworks.
+linkerOpts.osx = -framework ApplicationServices -framework Foundation
+linkerOpts.ios = -framework CoreGraphics -framework Foundation -framework ImageIO -framework MobileCoreServices -framework UIKit
+linkerOpts.tvos = -framework CoreGraphics -framework Foundation -framework ImageIO -framework MobileCoreServices -framework UIKit
+# zlib/libpng/libtiff need the C math library and pthreads.
+linkerOpts.linux = -lm -ldl -lpthread
+# Android: system libraries for the vendored zlib/libpng/libtiff/libwebp.
+linkerOpts.android = -lm -ldl -llog
