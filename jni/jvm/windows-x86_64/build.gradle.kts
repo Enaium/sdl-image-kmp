@@ -89,7 +89,6 @@ val configureJniLibrary by tasks.registering(Exec::class) {
     val javaHome = System.getProperty("java.home") ?: System.getenv("JAVA_HOME") ?: ""
     val jniInclude = if (javaHome.isNotEmpty()) "$javaHome/include" else ""
     val makeGenerator = if (System.getenv("MSYSTEM") != null) "MSYS Makefiles" else "MinGW Makefiles"
-    val sdlJniDll = extractSdlJniDll(buildDir)
     val args = mutableListOf(
         cmakeExecutable,
         rootProject.file("jni").absolutePath,
@@ -105,10 +104,39 @@ val configureJniLibrary by tasks.registering(Exec::class) {
         // PATH.
         "-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -static-libstdc++",
     )
-    if (sdlJniDll != null) {
-        args += "-DSDL_JNI_DLL=${sdlJniDll.absolutePath}"
+    doFirst {
+        // Extract libsdl_jni.dll from the sdl-kmp artifact and generate its
+        // import library with gendef + dlltool (execution time only: the
+        // tools only exist on Windows hosts, where this task runs).
+        extractSdlJniDll(buildDir)?.let { dll ->
+            args += "-DSDL_JNI_IMPLIB=${generateImportLib(dll, buildDir).absolutePath}"
+        }
     }
     commandLine(args)
+}
+
+/**
+ * Generates the import library (libsdl_jni.dll.a) for the extracted dll.
+ * x86_64 MinGW ld cannot link directly against a DLL (unlike i386), so the
+ * dll's exports are converted with gendef + dlltool first.
+ */
+fun generateImportLib(dll: File, buildDir: File): File {
+    val def = File(buildDir, "sdl-jni/${dll.nameWithoutExtension}.def")
+    val implib = File(buildDir, "sdl-jni/libsdl_jni.dll.a")
+    runProcess("gendef", listOf(dll.absolutePath), buildDir)
+    runProcess("dlltool", listOf("-d", def.absolutePath, "-l", implib.absolutePath, "-D", dll.name), buildDir)
+    check(implib.isFile) { "dlltool did not produce $implib" }
+    return implib
+}
+
+fun runProcess(command: String, args: List<String>, workDir: File) {
+    val process = ProcessBuilder(listOf(command) + args)
+        .directory(workDir)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().readText()
+    val exit = process.waitFor()
+    check(exit == 0) { "$command failed (exit $exit): " + output }
 }
 
 /** Extracts libsdl_jni.dll from the sdl-kmp JNI artifact, or null when unavailable. */

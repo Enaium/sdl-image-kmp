@@ -27,12 +27,14 @@ endif()
 #    compiled with default visibility there). libsdl_jni must therefore be
 #    loaded first; the Kotlin Jni object enforces this.
 #  - Windows: MinGW's linker refuses undefined symbols in DLLs, so the
-#    build links the actual libsdl_jni.dll (extracted from the sdl-kmp JVM
-#    artifact by the Gradle build and passed as SDL_JNI_DLL): its exports
-#    become import entries and resolve at load time. When SDL_JNI_DLL is not
-#    provided (local developer builds without the sdl-kmp jar), SDL3 is
-#    compiled and linked in as a fallback (two copies: works for standalone
-#    use, but cross-copy SDL3 objects are rejected).
+#    build links the import library of libsdl_jni.dll (generated from the
+#    dll extracted from the sdl-kmp JVM artifact by the Gradle build with
+#    gendef + dlltool and passed as SDL_JNI_IMPLIB; x86_64 ld cannot link
+#    against a DLL directly): its exports become import entries and resolve
+#    at load time. When SDL_JNI_IMPLIB is not provided (local developer
+#    builds without the sdl-kmp jar), SDL3 is compiled and linked in as a
+#    fallback (two copies: works for standalone use, but cross-copy SDL3
+#    objects are rejected).
 if(NOT DEFINED SDL_SOURCE_DIR)
     set(SDL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../includes/SDL")
 endif()
@@ -130,10 +132,10 @@ add_custom_target(sdl_image_jni_merged DEPENDS ${SDLIMAGE_JNI_MERGED_ARCHIVE})
 target_link_libraries(sdl_image_jni PRIVATE ${SDLIMAGE_JNI_MERGED_ARCHIVE})
 add_dependencies(sdl_image_jni sdl_image_jni_merged)
 
-if(WIN32 AND DEFINED SDL_JNI_DLL AND EXISTS "${SDL_JNI_DLL}")
-    # Linking the DLL file itself makes ld build import entries for its
-    # exports (the SDL3 symbols), resolving the undefined references.
-    target_link_libraries(sdl_image_jni PRIVATE "${SDL_JNI_DLL}")
+if(WIN32 AND DEFINED SDL_JNI_IMPLIB AND EXISTS "${SDL_JNI_IMPLIB}")
+    # Linking the import library resolves the SDL3 symbols as import entries
+    # (the DLL itself is loaded at runtime, first, by the Kotlin Jni object).
+    target_link_libraries(sdl_image_jni PRIVATE "${SDL_JNI_IMPLIB}")
 elseif(APPLE)
     # Resolve the SDL3 symbols at runtime from libsdl_jni (loaded first, see
     # Jni.kt) instead of failing the link.
@@ -148,7 +150,7 @@ elseif(UNIX AND NOT APPLE)
     # SDL3 symbols are resolved from libsdl_jni at dlopen time.
     target_link_libraries(sdl_image_jni PRIVATE -lm -ldl -lpthread)
 elseif(WIN32)
-    # Fallback (no SDL_JNI_DLL provided): compile and link SDL3 itself.
+    # Fallback (no SDL_JNI_IMPLIB provided): compile and link SDL3 itself.
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
     set(SDL_STATIC ON CACHE BOOL "" FORCE)
     set(SDL_TEST OFF CACHE BOOL "" FORCE)
