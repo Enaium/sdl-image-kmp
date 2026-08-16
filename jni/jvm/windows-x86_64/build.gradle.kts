@@ -118,7 +118,7 @@ fun extractSdlJniDll(buildDir: File): File? {
     var entry: Pair<ByteArray, String>? = null
     ZipFile(jar).use { zip ->
         val e = zip.entries().asSequence()
-            .firstOrNull { it.name.endsWith("libsdl_jni.dll") } ?: return@use
+            .firstOrNull { it.name.endsWith(".dll") } ?: return@use
         entry = zip.getInputStream(e).readBytes() to e.name
     }
     val data = entry ?: return null

@@ -71,6 +71,11 @@ set(SDLIMAGE_TESTS OFF CACHE BOOL "" FORCE)
 # ANI) builds from the in-repo sources and the vendored zlib/libpng/libwebp/
 # libtiff submodules of SDL_image.
 set(SDLIMAGE_AVIF OFF CACHE BOOL "" FORCE)
+# libtiff's FindCMath probes pow with check_symbol_exists, which cannot
+# resolve the symbol at configure time on cross-compiled targets; pow lives
+# either in libc (glibc 2.34+) or in libm, which libtiff links via
+# CMath_LIBRARY anyway, so pre-seed the check's cache variable.
+set(CMath_HAVE_LIBC_POW TRUE CACHE BOOL "pow is available in libc" FORCE)
 set(SDLIMAGE_JXL OFF CACHE BOOL "" FORCE)
 # Link the vendored format backends statically (instead of dlopen()ing system
 # libraries at runtime) so everything ends up inside the merged archive.
