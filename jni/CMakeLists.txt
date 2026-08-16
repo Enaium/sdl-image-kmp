@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(sdl-image-kmp-jni C CXX OBJC)
+project(sdl-image-kmp-jni C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# The ImageIO backend (IMG_ImageIO.m) is only compiled on Apple platforms;
+# MinGW has no Objective-C compiler.
+if(APPLE)
+    enable_language(OBJC)
+endif()
 
 # Builds the JNI shared library (libsdl_image_jni) for the JVM target.
 #
