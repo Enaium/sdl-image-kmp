@@ -158,6 +158,17 @@ jobs:
           SDL_VIDEO_DRIVER=dummy ./gradlew --no-daemon
           :examples:image_renderer:runDebugExecutableLinuxX64
 
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-linux
+          path: |
+            sdl-image-kmp/build/reports/tests
+            examples/image_renderer/build/reports
+            examples/image_renderer/build/konan
+          if-no-files-found: ignore
+
   test-android:
     name: Test Android (androidNative klibs)
     runs-on: ubuntu-latest
