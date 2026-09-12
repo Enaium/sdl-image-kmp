@@ -31,7 +31,7 @@ The published version requires [sdl-kmp](https://github.com/Enaium/sdl-kmp) `1.0
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("cn.enaium.sdl:sdl-image-kmp:1.0.0")
+            implementation("cn.enaium.sdl:sdl-image-kmp:1.0.1")
         }
     }
 }
