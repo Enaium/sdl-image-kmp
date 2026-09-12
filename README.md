@@ -23,7 +23,7 @@ Formats: PNG, JPG (via stb_image), WebP, TIFF, BMP, GIF, CUR/ICO, LBM, PCX, PNM,
 
 ## Usage
 
-The published version requires [sdl-kmp](https://github.com/Enaium/sdl-kmp) `1.0.7` (it is an `api` dependency, pulled in automatically).
+The published version requires [sdl-kmp](https://github.com/Enaium/sdl-kmp) `1.0.12` (it is an `api` dependency, pulled in automatically). GPU textures loaded by this binding reuse sdl-kmp's GPU texture implementation (`SDLGPUDevice.adoptTexture`), so `upload`/`download`/`blit` work on them like they do on sdl-kmp's own textures.
 
 `build.gradle.kts`:
 
@@ -82,6 +82,7 @@ fun main() {
 - **Detection**: `isBMP`, `isPNG`, `isGIF`, `isWEBP`, ... probe an `SDLIOStream` and seek it back.
 - **Saving**: `SDLImage.save` and the format-specific `savePNG`, `saveJPG`, `saveWEBP`, `saveBMP`, `saveGIF`, ... write an `SDLSurface` to a file or an `SDLIOStream`.
 - **Animations**: `SDLImage.loadAnimation` and friends return `SDLImageAnimation`s (frames + delays); the streaming `createAnimationEncoder`/`createAnimationDecoder` API adds and decodes frames one at a time.
+- **GPU textures**: `loadGPUTexture`/`loadGPUTextureIO`/`loadGPUTextureTypedIO` return textures backed by sdl-kmp's own GPU texture implementation (`SDLGPUDevice.adoptTexture`), so `upload`, `download` and `close` behave exactly like a texture created by sdl-kmp. Pass `copyPass = 0` to have the binding acquire and submit its own copy pass; the textures are always R8G8B8A8_UNORM.
 - **Errors**: every function either returns null/false or throws; the last error is available via `SDLImage.error()`.
 
 ### Platform notes
@@ -95,7 +96,7 @@ fun main() {
 
 ## Examples
 
-- **`examples/image_renderer`** — a renderer demo on top of sdl-kmp's 2D renderer: loads an image from a file (or generates a checkerboard, saves it as PNG with `SDLImage.savePNG` and loads it back when no path is given), uploads the surface into a texture, loads the image directly into a texture with `SDLImage.loadTexture`, and plays animated images frame by frame with `SDLImage.loadAnimation`. Runs on JVM, macOS, Linux and Windows (MinGW):
+- **`examples/image_renderer`** — a renderer demo on top of sdl-kmp's 2D renderer: loads an image from a file (or generates samples when no path is given — a checkerboard PNG, the same image as a lossy JPG, and an 8-frame animated GIF, all written with `SDLImage.savePNG`/`saveJPG` and the streaming `createAnimationEncoder` API, then loaded back), uploads the surface into a texture, loads the image directly into a texture with `SDLImage.loadTexture`, and plays animated images frame by frame with `SDLImage.loadAnimation`. Pass `--gpu` to run the GPU demo instead: it loads the image straight into an `SDL_GPUTexture` with `SDLImage.loadGPUTexture`, streams animation frames into it with `SDLGPUTexture.upload`, and presents it with `SDL_BlitGPUTexture` (requires a GPU device; not available under `SDL_VIDEO_DRIVER=dummy`). Runs on JVM, macOS, Linux and Windows (MinGW):
 
 ```bash
 # headless (CI / servers)
@@ -104,6 +105,9 @@ SDL_VIDEO_DRIVER=dummy ./gradlew :examples:image_renderer:runDebugExecutableMaco
 
 # with a window and your own image (PNG/JPG/GIF/...)
 ./gradlew :examples:image_renderer:jvmRun --args="image.png"
+
+# GPU demo (Metal/Vulkan/D3D12 device required)
+./gradlew :examples:image_renderer:jvmRun --args="--gpu image.png"
 ```
 
 Controls: `ESC` quit.

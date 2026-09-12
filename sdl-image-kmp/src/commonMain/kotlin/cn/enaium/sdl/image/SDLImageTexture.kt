@@ -22,6 +22,7 @@
 
 package cn.enaium.sdl.image
 
+import cn.enaium.sdl.SDLGPUDevice
 import cn.enaium.sdl.SDLGPUTexture
 import cn.enaium.sdl.SDLTexture
 
@@ -40,8 +41,10 @@ internal expect fun Long.toSDLTexture(owned: Boolean): SDLTexture?
 
 /**
  * Internal: wraps a raw SDL_GPUTexture handle created by SDL_image's
- * [SDLImage.loadGPUTexture] and friends in an [SDLGPUTexture], or returns
- * null for a null pointer. [owned] controls whether [SDLGPUTexture.close]
- * releases the texture.
+ * [SDLImage.loadGPUTexture] and friends into an [SDLGPUTexture] owned by
+ * [device], or returns null for a null pointer. The returned texture is
+ * backed by sdl-kmp's own GPU texture implementation (see
+ * [cn.enaium.sdl.SDLGPUDevice.adoptTexture]), so upload/download/close work
+ * exactly like a texture created by sdl-kmp itself.
  */
-internal expect fun Long.toSDLGPUTexture(owned: Boolean): SDLGPUTexture?
+internal expect fun Long.toSDLGPUTexture(device: SDLGPUDevice): SDLGPUTexture?

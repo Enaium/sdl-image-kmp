@@ -211,40 +211,27 @@ internal actual fun Long.toSDLTexture(owned: Boolean): SDLTexture? =
 
 /**
  * An [SDLGPUTexture] wrapping an SDL_GPUTexture created by SDL_image's
- * [SDLImage.loadGPUTexture] and friends. Upload/download are unsupported;
- * [close] releases the texture on the device that created it.
+ * [SDLImage.loadGPUTexture] and friends. Delegates to sdl-kmp's own GPU
+ * texture implementation via [SDLGPUDevice.adoptTexture], so upload,
+ * download and close behave exactly like a texture created by sdl-kmp.
  */
 internal class JvmImageGPUTexture internal constructor(
-    ptr: Long,
-    private val device: Long,
-    private val owned: Boolean,
+    private val adopted: SDLGPUTexture,
 ) : SDLGPUTexture {
 
-    internal var texture: Long = ptr
-
-    override val ptr: Long get() = texture
+    override val ptr: Long get() = adopted.ptr
 
     override fun upload(data: ByteArray, bytesPerRow: Int, x: Int, y: Int, width: Int, height: Int): Boolean =
-        false
+        adopted.upload(data, bytesPerRow, x, y, width, height)
 
-    override fun download(width: Int, height: Int): ByteArray? = null
+    override fun download(width: Int, height: Int): ByteArray? = adopted.download(width, height)
 
-    override fun close() {
-        val t = texture
-        if (t == 0L) return
-        texture = 0L
-        if (owned) {
-            Jni.releaseGPUTexture(device, t)
-        }
-    }
+    override fun close() = adopted.close()
 }
 
-internal actual fun Long.toSDLGPUTexture(owned: Boolean): SDLGPUTexture? =
-    if (this == 0L) null else JvmImageGPUTexture(this, device = 0L, owned = owned)
-
-/** JVM helper: wraps a GPU texture, remembering the [device] that owns it. */
-internal fun Long.toSDLGPUTexture(device: Long, owned: Boolean): SDLGPUTexture? =
-    if (this == 0L) null else JvmImageGPUTexture(this, device = device, owned = owned)
+/** JVM helper: wraps a GPU texture created by SDL_image on [device]. */
+internal actual fun Long.toSDLGPUTexture(device: SDLGPUDevice): SDLGPUTexture? =
+    if (this == 0L) null else JvmImageGPUTexture(device.adoptTexture(this, bytesPerPixel = 4))
 
 internal class JvmSDLImageAnimation internal constructor(
     ptr: Long,
@@ -398,7 +385,7 @@ actual object SDLImage {
     actual fun loadGPUTexture(device: SDLGPUDevice, copyPass: Long, file: String): SDLImageGPUTexture? {
         val result = Jni.loadGPUTexture(device.deviceOrNull(), copyPass, file) ?: return null
         return SDLImageGPUTexture(
-            result[0].toSDLGPUTexture(device.ptr, owned = true)!!,
+            result[0].toSDLGPUTexture(device)!!,
             result[1].toInt(),
             result[2].toInt(),
         )
@@ -413,7 +400,7 @@ actual object SDLImage {
         val result = Jni.loadGPUTextureIO(device.deviceOrNull(), copyPass, stream.streamOrNull(), closeIO)
             ?: return null
         return SDLImageGPUTexture(
-            result[0].toSDLGPUTexture(device.ptr, owned = true)!!,
+            result[0].toSDLGPUTexture(device)!!,
             result[1].toInt(),
             result[2].toInt(),
         )
@@ -430,7 +417,7 @@ actual object SDLImage {
             device.deviceOrNull(), copyPass, stream.streamOrNull(), closeIO, type,
         ) ?: return null
         return SDLImageGPUTexture(
-            result[0].toSDLGPUTexture(device.ptr, owned = true)!!,
+            result[0].toSDLGPUTexture(device)!!,
             result[1].toInt(),
             result[2].toInt(),
         )

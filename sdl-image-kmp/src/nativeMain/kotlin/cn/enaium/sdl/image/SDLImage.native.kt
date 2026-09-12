@@ -21,6 +21,7 @@ import cnames.structs.SDL_GPUTexture
 import cnames.structs.SDL_IOStream
 import cnames.structs.SDL_Renderer
 import sdl3.*
+import sdl3.SDL_Surface
 import kotlinx.cinterop.*
 import sdl_image.IMG_AddAnimationEncoderFrame
 import sdl_image.IMG_CloseAnimationDecoder
@@ -409,44 +410,27 @@ internal actual fun Long.toSDLTexture(owned: Boolean): SDLTexture? {
 
 /**
  * An [SDLGPUTexture] wrapping an SDL_GPUTexture created by SDL_image's
- * [SDLImage.loadGPUTexture] and friends. Upload/download are unsupported;
- * [close] releases the texture on the device that created it.
+ * [SDLImage.loadGPUTexture] and friends. Delegates to sdl-kmp's own GPU
+ * texture implementation via [SDLGPUDevice.adoptTexture], so upload,
+ * download and close behave exactly like a texture created by sdl-kmp.
  */
 internal class NativeImageGPUTexture internal constructor(
-    ptr: CPointer<SDL_GPUTexture>?,
-    private val device: CPointer<SDL_GPUDevice>?,
-    private val owned: Boolean,
+    private val adopted: SDLGPUTexture,
 ) : SDLGPUTexture {
 
-    internal var texture: CPointer<SDL_GPUTexture>? = ptr
-
-    override val ptr: Long get() = texture?.rawValue?.toLong() ?: 0L
+    override val ptr: Long get() = adopted.ptr
 
     override fun upload(data: ByteArray, bytesPerRow: Int, x: Int, y: Int, width: Int, height: Int): Boolean =
-        false
+        adopted.upload(data, bytesPerRow, x, y, width, height)
 
-    override fun download(width: Int, height: Int): ByteArray? = null
+    override fun download(width: Int, height: Int): ByteArray? = adopted.download(width, height)
 
-    override fun close() {
-        val t = texture
-        if (t == null) return
-        texture = null
-        if (owned) {
-            SDL_ReleaseGPUTexture(device, t)
-        }
-    }
+    override fun close() = adopted.close()
 }
 
-internal actual fun Long.toSDLGPUTexture(owned: Boolean): SDLGPUTexture? {
-    if (this == 0L) return null
-    return NativeImageGPUTexture(this.toCPointer<SDL_GPUTexture>(), null, owned = owned)
-}
-
-/** Native helper: wraps a GPU texture, remembering the [device] that owns it. */
-internal fun Long.toSDLGPUTexture(device: CPointer<SDL_GPUDevice>?, owned: Boolean): SDLGPUTexture? {
-    if (this == 0L) return null
-    return NativeImageGPUTexture(this.toCPointer<SDL_GPUTexture>(), device, owned = owned)
-}
+/** Native helper: wraps a GPU texture created by SDL_image on [device]. */
+internal actual fun Long.toSDLGPUTexture(device: SDLGPUDevice): SDLGPUTexture? =
+    if (this == 0L) null else NativeImageGPUTexture(device.adoptTexture(this, bytesPerPixel = 4))
 
 internal class NativeSDLImageAnimation internal constructor(
     ptr: CPointer<IMG_Animation>?,
@@ -574,6 +558,34 @@ private inline fun SDLGPUDevice.deviceOrNull(): CPointer<SDL_GPUDevice>? {
 private fun Long.copyPassOrNull(): CPointer<SDL_GPUCopyPass>? =
     if (this == 0L) null else this.toCPointer<SDL_GPUCopyPass>()
 
+// When the caller has no SDL_GPUCopyPass (copyPass == 0), acquire a command
+// buffer and begin a copy pass so IMG_LoadGPUTexture* has a pass to record
+// into; the pass is ended and the buffer submitted afterwards. Returns the
+// pass, or null on failure (SDL's error is set).
+private inline fun <T> withCopyPass(
+    device: CPointer<SDL_GPUDevice>?,
+    copyPass: Long,
+    block: (CPointer<SDL_GPUCopyPass>) -> T,
+): T? {
+    if (copyPass != 0L) {
+        return block(copyPass.copyPassOrNull()!!)
+    }
+    val cmd = SDL_AcquireGPUCommandBuffer(device) ?: return null
+    val pass = SDL_BeginGPUCopyPass(cmd)
+    if (pass == null) {
+        SDL_CancelGPUCommandBuffer(cmd)
+        return null
+    }
+    val result = block(pass)
+    SDL_EndGPUCopyPass(pass)
+    if (result == null) {
+        SDL_CancelGPUCommandBuffer(cmd)
+    } else {
+        SDL_SubmitGPUCommandBuffer(cmd)
+    }
+    return result
+}
+
 private fun readXPM(xpm: List<String>, rgb888: Boolean): SDLSurface? = memScoped {
     val arr = allocArray<CPointerVar<ByteVar>>(xpm.size + 1)
     for (i in xpm.indices) {
@@ -631,11 +643,12 @@ actual object SDLImage {
         memScoped {
             val w = alloc<IntVar>()
             val h = alloc<IntVar>()
-            val tex = IMG_LoadGPUTexture(
-                device.deviceOrNull(), copyPass.copyPassOrNull(), file, w.ptr, h.ptr,
-            ) ?: return null
+            val dev = device.deviceOrNull()
+            val tex = withCopyPass(dev, copyPass) { pass ->
+                IMG_LoadGPUTexture(dev, pass, file, w.ptr, h.ptr)
+            } ?: return null
             SDLImageGPUTexture(
-                tex.rawValue.toLong().toSDLGPUTexture(device.deviceOrNull(), owned = true)!!,
+                tex.rawValue.toLong().toSDLGPUTexture(device)!!,
                 w.value, h.value,
             )
         }
@@ -647,11 +660,12 @@ actual object SDLImage {
     ): SDLImageGPUTexture? = memScoped {
         val w = alloc<IntVar>()
         val h = alloc<IntVar>()
-        val tex = IMG_LoadGPUTexture_IO(
-            device.deviceOrNull(), copyPass.copyPassOrNull(), stream.streamOrNull(), closeIO, w.ptr, h.ptr,
-        ) ?: return null
+        val dev = device.deviceOrNull()
+        val tex = withCopyPass(dev, copyPass) { pass ->
+            IMG_LoadGPUTexture_IO(dev, pass, stream.streamOrNull(), closeIO, w.ptr, h.ptr)
+        } ?: return null
         SDLImageGPUTexture(
-            tex.rawValue.toLong().toSDLGPUTexture(device.deviceOrNull(), owned = true)!!,
+            tex.rawValue.toLong().toSDLGPUTexture(device)!!,
             w.value, h.value,
         )
     }
@@ -665,11 +679,12 @@ actual object SDLImage {
     ): SDLImageGPUTexture? = memScoped {
         val w = alloc<IntVar>()
         val h = alloc<IntVar>()
-        val tex = IMG_LoadGPUTextureTyped_IO(
-            device.deviceOrNull(), copyPass.copyPassOrNull(), stream.streamOrNull(), closeIO, type, w.ptr, h.ptr,
-        ) ?: return null
+        val dev = device.deviceOrNull()
+        val tex = withCopyPass(dev, copyPass) { pass ->
+            IMG_LoadGPUTextureTyped_IO(dev, pass, stream.streamOrNull(), closeIO, type, w.ptr, h.ptr)
+        } ?: return null
         SDLImageGPUTexture(
-            tex.rawValue.toLong().toSDLGPUTexture(device.deviceOrNull(), owned = true)!!,
+            tex.rawValue.toLong().toSDLGPUTexture(device)!!,
             w.value, h.value,
         )
     }

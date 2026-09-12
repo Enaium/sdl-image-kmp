@@ -44,5 +44,7 @@ bin/
 
 ### Mac OS ###
 .DS_Store
-# example-generated demo image
+# example-generated demo images (PNG/JPG/GIF)
 sdl-image-kmp-demo.png
+sdl-image-kmp-demo.jpg
+sdl-image-kmp-demo.gif

@@ -122,7 +122,14 @@ interface SDLImageAnimationDecoder : AutoCloseable {
     override fun close()
 }
 
-/** The result of [SDLImage.loadGPUTexture] and friends. */
+/**
+ * The result of [SDLImage.loadGPUTexture] and friends.
+ *
+ * The texture is always R8G8B8A8_UNORM and is backed by sdl-kmp's own GPU
+ * texture implementation (see [cn.enaium.sdl.SDLGPUDevice.adoptTexture]), so
+ * [SDLGPUTexture.upload] and [SDLGPUTexture.download] work like they do on a
+ * texture created by sdl-kmp.
+ */
 data class SDLImageGPUTexture(
     /** The loaded GPU texture (release it with [SDLGPUTexture.close]). */
     val texture: SDLGPUTexture,
@@ -199,10 +206,10 @@ expect object SDLImage {
     /**
      * Loads the image at [file] into an R8G8B8A8 GPU texture.
      *
-     * [copyPass] is the raw SDL_GPUCopyPass handle (obtained from an active
-     * command buffer; sdl-kmp does not expose copy passes yet), or null to
-     * let this binding create and submit an internal copy pass on the GPU
-     * queue of [device]. Returns the texture and its size, or null on failure.
+     * [copyPass] is the raw SDL_GPUCopyPass handle to record the upload into,
+     * or 0 to let this binding acquire a command buffer and record its own
+     * copy pass (which it then submits). Returns the texture and its size, or
+     * null on failure.
      */
     fun loadGPUTexture(device: SDLGPUDevice, copyPass: Long = 0L, file: String): SDLImageGPUTexture?
 

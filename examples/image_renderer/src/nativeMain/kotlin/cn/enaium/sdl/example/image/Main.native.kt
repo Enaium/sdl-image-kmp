@@ -21,9 +21,12 @@
  */
 
 import cn.enaium.sdl.example.image.runExample
+import cn.enaium.sdl.example.image.runGpuExample
 
 // Note: no package declaration - Kotlin/Native only treats a top-level main
 // in the root package as the executable entry point.
 fun main(args: Array<String>) {
-    runExample(args.firstOrNull())
+    val gpu = args.any { it == "--gpu" }
+    val path = args.firstOrNull { !it.startsWith("--") }
+    if (gpu) runGpuExample(path) else runExample(path)
 }

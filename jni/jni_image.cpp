@@ -235,31 +235,89 @@ static inline jlongArray img_jni_gpu_texture(JNIEnv *env, SDL_GPUTexture *textur
     return img_jni_new_jlong_array(env, {img_jni_ptr(texture), w, h});
 }
 
+// When the caller has no SDL_GPUCopyPass (copyPass == 0), acquire a command
+// buffer and begin a copy pass on it so IMG_LoadGPUTexture* has a pass to
+// record into; the pass is ended and the buffer submitted afterwards.
+// Returns the pass and (via outCmd) the command buffer to submit; on failure
+// SDL's error is set and null is returned.
+static inline SDL_GPUCopyPass *img_jni_acquire_internal_pass(
+    SDL_GPUDevice *device, jlong copyPass, SDL_GPUCommandBuffer **outCmd) {
+    if (copyPass != 0) {
+        *outCmd = nullptr;
+        return img_jni_copy_pass(copyPass);
+    }
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(device);
+    if (!cmd) {
+        return nullptr;
+    }
+    SDL_GPUCopyPass *pass = SDL_BeginGPUCopyPass(cmd);
+    if (!pass) {
+        SDL_CancelGPUCommandBuffer(cmd);
+        return nullptr;
+    }
+    *outCmd = cmd;
+    return pass;
+}
+
+// Submits (or cancels) the command buffer created by
+// img_jni_acquire_internal_pass; no-op when the caller supplied the pass.
+static inline void img_jni_finish_internal_pass(
+    SDL_GPUDevice *device, SDL_GPUCommandBuffer *cmd, SDL_GPUCopyPass *pass, bool ok) {
+    if (!cmd) {
+        return;
+    }
+    if (ok) {
+        SDL_EndGPUCopyPass(pass);
+        SDL_SubmitGPUCommandBuffer(cmd);
+    } else {
+        SDL_EndGPUCopyPass(pass);
+        SDL_CancelGPUCommandBuffer(cmd);
+    }
+}
+
 IMGJNI_FUNC(jlongArray) IMGJNI_NAME(loadGPUTexture)(JNIEnv *env, jclass, jlong device, jlong copyPass,
                                                     jstring file) {
     std::string f = img_jni_copy_string(env, file);
+    SDL_GPUDevice *dev = img_jni_device(device);
+    SDL_GPUCommandBuffer *cmd = nullptr;
+    SDL_GPUCopyPass *pass = img_jni_acquire_internal_pass(dev, copyPass, &cmd);
+    if (!pass) {
+        return nullptr;
+    }
     int w = 0, h = 0;
-    SDL_GPUTexture *texture = IMG_LoadGPUTexture(
-        img_jni_device(device), img_jni_copy_pass(copyPass), f.c_str(), &w, &h);
+    SDL_GPUTexture *texture = IMG_LoadGPUTexture(dev, pass, f.c_str(), &w, &h);
+    img_jni_finish_internal_pass(dev, cmd, pass, texture != nullptr);
     return texture ? img_jni_gpu_texture(env, texture, w, h) : nullptr;
 }
 
 IMGJNI_FUNC(jlongArray) IMGJNI_NAME(loadGPUTextureIO)(JNIEnv *env, jclass, jlong device, jlong copyPass,
                                                       jlong stream, jboolean closeio) {
+    SDL_GPUDevice *dev = img_jni_device(device);
+    SDL_GPUCommandBuffer *cmd = nullptr;
+    SDL_GPUCopyPass *pass = img_jni_acquire_internal_pass(dev, copyPass, &cmd);
+    if (!pass) {
+        return nullptr;
+    }
     int w = 0, h = 0;
     SDL_GPUTexture *texture = IMG_LoadGPUTexture_IO(
-        img_jni_device(device), img_jni_copy_pass(copyPass), img_jni_stream(stream),
-        closeio == JNI_TRUE, &w, &h);
+        dev, pass, img_jni_stream(stream), closeio == JNI_TRUE, &w, &h);
+    img_jni_finish_internal_pass(dev, cmd, pass, texture != nullptr);
     return texture ? img_jni_gpu_texture(env, texture, w, h) : nullptr;
 }
 
 IMGJNI_FUNC(jlongArray) IMGJNI_NAME(loadGPUTextureTypedIO)(JNIEnv *env, jclass, jlong device, jlong copyPass,
                                                            jlong stream, jboolean closeio, jstring type) {
     std::string t = img_jni_copy_string(env, type);
+    SDL_GPUDevice *dev = img_jni_device(device);
+    SDL_GPUCommandBuffer *cmd = nullptr;
+    SDL_GPUCopyPass *pass = img_jni_acquire_internal_pass(dev, copyPass, &cmd);
+    if (!pass) {
+        return nullptr;
+    }
     int w = 0, h = 0;
     SDL_GPUTexture *texture = IMG_LoadGPUTextureTyped_IO(
-        img_jni_device(device), img_jni_copy_pass(copyPass), img_jni_stream(stream),
-        closeio == JNI_TRUE, t.c_str(), &w, &h);
+        dev, pass, img_jni_stream(stream), closeio == JNI_TRUE, t.c_str(), &w, &h);
+    img_jni_finish_internal_pass(dev, cmd, pass, texture != nullptr);
     return texture ? img_jni_gpu_texture(env, texture, w, h) : nullptr;
 }
 
@@ -844,13 +902,4 @@ IMGJNI_FUNC(void) IMGJNI_NAME(textureUnlock)(JNIEnv *, jclass, jlong texture) {
 
 IMGJNI_FUNC(void) IMGJNI_NAME(destroyTexture)(JNIEnv *, jclass, jlong texture) {
     SDL_DestroyTexture(img_jni_texture(texture));
-}
-
-// ---------------------------------------------------------------------------
-// GPU textures
-// ---------------------------------------------------------------------------
-
-IMGJNI_FUNC(void) IMGJNI_NAME(releaseGPUTexture)(JNIEnv *, jclass, jlong device, jlong texture) {
-    SDL_ReleaseGPUTexture(img_jni_device(device),
-                          static_cast<SDL_GPUTexture *>(img_jni_unptr(texture)));
 }

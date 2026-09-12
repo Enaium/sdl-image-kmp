@@ -22,6 +22,13 @@
 
 package cn.enaium.sdl.example.image
 
+/**
+ * Entry point for the example. Pass an image path as the first argument and
+ * `--gpu` to run the GPU demo ([runGpuExample]) instead of the 2D renderer
+ * demo ([runExample]).
+ */
 fun main(args: Array<String>) {
-    runExample(args.firstOrNull())
+    val gpu = args.any { it == "--gpu" }
+    val path = args.firstOrNull { !it.startsWith("--") }
+    if (gpu) runGpuExample(path) else runExample(path)
 }

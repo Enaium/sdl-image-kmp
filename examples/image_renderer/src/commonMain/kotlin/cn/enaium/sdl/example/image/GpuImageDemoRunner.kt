@@ -23,36 +23,40 @@
 package cn.enaium.sdl.example.image
 
 import cn.enaium.sdl.SDL
+import cn.enaium.sdl.SDLGPU
 import cn.enaium.sdl.SDLInitFlags
 import cn.enaium.sdl.SDLWindowFlags
 
 /**
- * Runs the demo. [path] is the image file to load; when it is null (or empty)
- * a checkerboard PNG, a lossy JPG and an animated GIF are generated with the
- * bindings themselves (see [generateExampleAssets]), each is loaded back, and
- * the GIF is played.
+ * Runs the GPU demo: loads [path] straight into an `SDL_GPUTexture` with
+ * [cn.enaium.sdl.image.SDLImage.loadGPUTexture] and presents it with
+ * `SDL_BlitGPUTexture` every frame. When [path] is null (or empty) the PNG,
+ * JPG and animated GIF samples are generated with the bindings themselves
+ * (see [generateExampleAssets]) and the GIF is played by re-uploading each
+ * frame with `SDLGPUTexture.upload`.
  *
- * [maxFrames] limits the run in headless CI (SDL_VIDEO_DRIVER=dummy); pass 0
- * to run until the window is closed.
+ * [maxFrames] limits the run in headless CI; pass 0 to run until the window
+ * is closed.
  */
-fun runExample(path: String?, maxFrames: Int = 300) {
+fun runGpuExample(path: String?, maxFrames: Int = 300) {
     SDL.setMainReady()
 
     if (!SDL.init(SDLInitFlags.VIDEO or SDLInitFlags.EVENTS)) {
         error("SDL_Init failed: ${SDL.error()}")
     }
 
+    val device = SDLGPU.createDevice()
+        ?: error("SDL_CreateGPUDevice failed: ${SDL.error()} (drivers: ${SDLGPU.drivers})")
+
     var imagePath = path
     if (imagePath.isNullOrEmpty()) {
-        // No sample images are shipped: generate PNG/JPG/GIF with the
-        // bindings, load each one back and play the animated GIF.
         imagePath = verifyExampleAssets(generateExampleAssets())
         println("generated test images; playing $imagePath")
     }
 
-    SDL.createWindow("sdl-image-kmp", 800, 600, SDLWindowFlags.RESIZABLE).use { window ->
-        SDL.createRenderer(window).use { renderer ->
-            val demo = ImageDemo(window, renderer, imagePath, maxFrames)
+    device.use {
+        SDL.createWindow("sdl-image-kmp (GPU)", 800, 600, SDLWindowFlags.RESIZABLE).use { window ->
+            val demo = GpuImageDemo(window, device, imagePath, maxFrames)
             try {
                 while (demo.frame()) {
                     SDL.delay(16)

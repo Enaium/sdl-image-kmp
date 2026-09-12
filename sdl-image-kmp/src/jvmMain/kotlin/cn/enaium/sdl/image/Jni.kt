@@ -233,10 +233,4 @@ internal object Jni {
     external fun textureLock(texture: Long, rect: IntArray?): Array<Any>?
     external fun textureUnlock(texture: Long)
     external fun destroyTexture(texture: Long)
-
-    // =========================================================================
-    // GPU textures
-    // =========================================================================
-
-    external fun releaseGPUTexture(device: Long, texture: Long)
 }
