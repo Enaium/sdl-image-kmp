@@ -41,7 +41,7 @@
     canvas.width = 800;
     canvas.height = 600;
     await initSdlKmp({ canvas });
-    await initSdlImageKmp({ canvas });
+    await initSdlImageKmp();
 
     // 2. Import the Kotlin/Wasm module; its runtime auto-invokes main().
     await import('./sdl-image-kmp-examples-image_renderer.mjs');

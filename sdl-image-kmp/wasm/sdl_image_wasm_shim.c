@@ -338,29 +338,43 @@ void *sdl_image_kmp_EncodeAnimation(const void *frames, int w, int h, int count,
     if (!type || !*type || count <= 0 || !delays) {
         return NULL;
     }
-    const int stride = w * h * 4;
+    const int rowPitch = w * 4;
+    const int frameSize = rowPitch * h;
     SDL_Surface **surfaces = (SDL_Surface **) SDL_malloc(sizeof(SDL_Surface *) * (size_t) count);
     if (!surfaces) {
         return NULL;
     }
     int built = 0;
     for (; built < count; ++built) {
-        surfaces[built] = kmp_surface_from((const void *) ((const uint8_t *) frames + (size_t) built * stride), w, h, stride);
-        if (!surfaces[built]) {
+        // Copy into SDL-owned surfaces: the GIF encoder converts each frame to
+        // INDEX8, and borrowed pixel buffers are not supported by that path.
+        SDL_Surface *owned = SDL_CreateSurface(w, h, KMP_SURFACE_FORMAT);
+        if (!owned) {
             break;
         }
+        const uint8_t *src = (const uint8_t *) frames + (size_t) built * frameSize;
+        for (int y = 0; y < h; ++y) {
+            SDL_memcpy((uint8_t *) owned->pixels + (size_t) y * owned->pitch,
+                       src + (size_t) y * rowPitch, (size_t) rowPitch);
+        }
+        surfaces[built] = owned;
     }
     void *result = NULL;
     if (built == count) {
-        IMG_Animation animation;
-        animation.w = w;
-        animation.h = h;
-        animation.count = count;
-        animation.frames = surfaces;
-        animation.delays = (int *) delays;
         SDL_IOStream *stream = SDL_IOFromDynamicMem();
         if (stream) {
-            if (IMG_SaveAnimationTyped_IO(&animation, stream, false, type)) {
+            // Use the streaming encoder (the same entry point the JVM/native
+            // bindings use) instead of hand-building an IMG_Animation: the
+            // encoder needs to own the frame bookkeeping.
+            IMG_AnimationEncoder *encoder = IMG_CreateAnimationEncoder_IO(stream, false, type);
+            bool ok = encoder != NULL;
+            for (int i = 0; ok && i < count; ++i) {
+                ok = IMG_AddAnimationEncoderFrame(encoder, surfaces[i], (Uint64) delays[i]);
+            }
+            if (encoder) {
+                ok = IMG_CloseAnimationEncoder(encoder) && ok;
+            }
+            if (ok) {
                 result = kmp_stream_take(stream, outLen);
             } else {
                 SDL_CloseIO(stream);

@@ -100,7 +100,7 @@ fun main() {
     import { initSdlImageKmp } from '@enaium/sdl-image-kmp';
 
     await initSdlKmp({ canvas });
-    await initSdlImageKmp({ canvas });   // before importing the Kotlin/Wasm module
+    await initSdlImageKmp();   // before importing the Kotlin/Wasm module
     ```
   - Building the module needs the Emscripten SDK: pass `-Pwasm.emsdk=<path>` or set `EMSDK` (see `./gradlew :sdl-image-kmp:assembleWasmNpm`).
 

@@ -38,10 +38,16 @@
  * module is a separate wasm instance with its own memory).
  */
 
-export async function initSdlImageKmp(options = {}) {
+/*
+ * No canvas: this module only decodes/encodes images (it is built without a
+ * video driver), so it never creates a WebGL context. SDL3's module owns the
+ * canvas; the two instances share nothing but the pixel bytes the Kotlin side
+ * copies between them.
+ */
+export async function initSdlImageKmp() {
     const mod = await import('./sdl_image_wasm.js');
     const loadModule = typeof mod.default === 'function' ? mod.default : mod;
-    const Module = await loadModule({ canvas: options.canvas });
+    const Module = await loadModule({});
 
     const UTF8 = Module.UTF8ToString;
     const malloc = Module._malloc;
