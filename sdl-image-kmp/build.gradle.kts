@@ -132,6 +132,12 @@ kotlin {
         }
     }
 
+    // ==================== Kotlin/Wasm ====================
+    // Kotlin/Wasm has no cinterop, so SDL_image is compiled to a standalone
+    // Emscripten module (see the wasm section below and wasm/); the wasmJs
+    // actuals drive it through a JS glue layer.
+    wasmJs()
+
     // ==================== Native ====================
     macosArm64()
     macosX64()
@@ -204,6 +210,15 @@ kotlin {
         commonTest {
             dependencies {
                 implementation(libs.kotlin.test)
+            }
+        }
+
+        wasmJsMain {
+            dependsOn(getByName("commonMain"))
+            dependencies {
+                // Typed arrays (Int8Array/Int32Array) used to marshal data
+                // across the JS bridge into the Emscripten-compiled module.
+                implementation("org.jetbrains.kotlinx:kotlinx-browser:0.5.0")
             }
         }
 
@@ -435,4 +450,213 @@ mavenPublishing {
             url.set("https://github.com/Enaium/sdl-image-kmp/issues")
         }
     }
+}
+
+// ==================== wasm: build the SDL_image module ====================
+// Kotlin/Wasm cannot embed C libraries and has no cinterop, so SDL3 + SDL_image
+// are compiled to a standalone Emscripten module (sdl_image_wasm.js +
+// sdl_image_wasm.wasm) that the wasmJs actuals drive through the JS glue in
+// src/wasmJsMain (see SDLImage.wasm.kt). The module is a separate wasm
+// instance from sdl-kmp's, so only pixels, not pointers, cross the boundary:
+// decoders convert to RGBA8888 and the pixels are handed to sdl-kmp's
+// SDL.createSurface, which keeps the returned objects interoperable with the
+// rest of sdl-kmp (renderers, textures, renderTexture).
+
+fun emsdkPath(): String {
+    System.getenv("EMSDK")?.takeIf { it.isNotBlank() }?.let { return it }
+    providers.gradleProperty("wasm.emsdk").orNull?.takeIf { it.isNotBlank() }?.let { return it }
+    val home = System.getProperty("user.home")
+    listOf(File(home, "emsdk"), File(home, "sdk/emsdk"))
+        .forEach { if (it.isDirectory()) return it.absolutePath }
+    return ""
+}
+
+val wasmEmsdk = emsdkPath()
+val wasmEmcc = File(wasmEmsdk, "upstream/emscripten/emcc")
+val wasmToolchain = File(wasmEmsdk, "upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake")
+val wasmSourceDir = projectDir.resolve("wasm")
+val wasmModuleOutput = layout.buildDirectory.dir("wasmModule").get().asFile
+
+// Emscripten needs Python >= 3.10; the emsdk ships its own interpreter, which
+// may not be on PATH (macOS ships Python 3.9 as /usr/bin/python3).
+fun wasmEnv(): Map<String, String> {
+    val pythonDir = File(wasmEmsdk, "python").listFiles()?.firstOrNull { it.isDirectory }
+    return if (pythonDir != null) {
+        mapOf("PATH" to "${pythonDir.absolutePath}/bin:${System.getenv("PATH")}")
+    } else {
+        emptyMap()
+    }
+}
+
+tasks.register<Exec>("configureWasmModule") {
+    group = "build"
+    description = "Configures the Emscripten build of SDL3 + SDL_image."
+    onlyIf { wasmEmsdk.isNotEmpty() }
+    doFirst {
+        File(wasmModuleOutput, "cmake").mkdirs()
+        wasmModuleOutput.mkdirs()
+    }
+    workingDir = File(wasmModuleOutput, "cmake")
+    environment(wasmEnv())
+    // A toolchain file disables the generator's normal make discovery, so the
+    // make program must be passed explicitly (emcmake does the same).
+    val makeProgram = if (hostOs.isWindows) "nmake" else "/usr/bin/make"
+    commandLine(
+        cmakeExecutable, wasmSourceDir.absolutePath,
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_TOOLCHAIN_FILE=${wasmToolchain.absolutePath}",
+        "-DCMAKE_MAKE_PROGRAM=${makeProgram}",
+        "-DSDL_SOURCE_DIR=${sdlDir.absolutePath}",
+        "-DSDLIMAGE_SOURCE_DIR=${imageDir.absolutePath}",
+        "-DSDLIMAGE_KMP_OUTPUT_DIR=${wasmModuleOutput.absolutePath}",
+    )
+}
+
+tasks.register<Exec>("buildWasmModuleLibs") {
+    group = "build"
+    description = "Builds the SDL3 + SDL_image static archives for Emscripten."
+    onlyIf { wasmEmsdk.isNotEmpty() }
+    dependsOn("configureWasmModule")
+    workingDir = File(wasmModuleOutput, "cmake")
+    environment(wasmEnv())
+    commandLine(cmakeExecutable, "--build", ".", "--config", "Release")
+}
+
+tasks.register<Exec>("linkWasmModule") {
+    group = "build"
+    description = "Links sdl_image_wasm.js/.wasm from the Emscripten archives."
+    onlyIf { wasmEmsdk.isNotEmpty() }
+    dependsOn("buildWasmModuleLibs")
+    workingDir = wasmSourceDir
+    environment(wasmEnv())
+    doFirst {
+        wasmModuleOutput.mkdirs()
+        val exports = Regex("sdl_image_kmp_\\w+(?=\\()")
+            .findAll(wasmSourceDir.resolve("sdl_image_wasm_shim.c").readText())
+            .map { it.value }
+            .distinct()
+            .joinToString(",") { "_$it" }
+        commandLine(
+            wasmEmcc.absolutePath,
+            wasmSourceDir.resolve("sdl_image_wasm_shim.c").absolutePath,
+            File(wasmModuleOutput, "libSDL3_image_wasm.a").absolutePath,
+            "-I${sdlDir.absolutePath}/include",
+            "-I${imageDir.absolutePath}/include",
+            "-o", File(wasmModuleOutput, "sdl_image_wasm.js").absolutePath,
+            "-sMODULARIZE=1", "-sEXPORT_NAME=SDLImageModule", "-sEXPORT_ES6=1",
+            "-sEXPORTED_FUNCTIONS=${exports},_malloc,_free",
+            "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,HEAPU8,HEAP32",
+            "-sALLOW_MEMORY_GROWTH=1", "-sINITIAL_MEMORY=33554432",
+            "-sENVIRONMENT=web,worker,node", "-sFILESYSTEM=0", "-sMAX_WEBGL_VERSION=2",
+            "--no-entry",
+        )
+    }
+    inputs.file(wasmSourceDir.resolve("sdl_image_wasm_shim.c"))
+    inputs.file(wasmSourceDir.resolve("CMakeLists.txt"))
+    outputs.file(File(wasmModuleOutput, "sdl_image_wasm.js"))
+    outputs.file(File(wasmModuleOutput, "sdl_image_wasm.wasm"))
+}
+
+// ==================== wasm: npm package ====================
+// The Emscripten module and the JS glue ship as an npm package
+// (@enaium/sdl-image-kmp) instead of a Maven "assets" jar: web apps depend on
+// it like any other npm package and `import { initSdlImageKmp } from
+// "@enaium/sdl-image-kmp"` before running the Kotlin/Wasm module, so no asset
+// extraction step is involved.
+//
+// The package version is the pinned SDL_image release plus this library's own
+// revision: npm only accepts three-component semver, so the fourth component
+// of the Gradle version (3.4.0.1) becomes a prerelease suffix (3.4.0-1).
+
+val sdlImageVersion: String by lazy {
+    val header = imageDir.resolve("include/SDL3_image/SDL_image.h").readText()
+    fun macro(name: String): String =
+        Regex("""#define\s+$name\s+(\d+)""").find(header)?.groupValues?.get(1)
+            ?: error("$name is missing from SDL_image.h")
+    "${macro("SDL_IMAGE_MAJOR_VERSION")}.${macro("SDL_IMAGE_MINOR_VERSION")}.${macro("SDL_IMAGE_MICRO_VERSION")}"
+}
+
+val npmPackageVersion: String by lazy {
+    // SDL-aligned versions (3.4.8.2) become 3.4.8-2; a plain three-component
+    // library version (1.0.1) is appended whole so the npm package stays
+    // unique per release (3.4.8-1.0.1).
+    val parts = rootProject.version.toString().split('.')
+    val revision = if (parts.size > 3) parts.drop(3).joinToString(".") else parts.joinToString(".")
+    "$sdlImageVersion-$revision"
+}
+
+val wasmNpmDir = layout.buildDirectory.dir("npm").get().asFile
+val wasmGlue = wasmSourceDir.resolve("sdl_image_glue.js")
+
+tasks.register("assembleWasmNpm") {
+    group = "build"
+    description = "Stages the @enaium/sdl-image-kmp npm package in build/npm."
+    dependsOn("linkWasmModule")
+    inputs.file(wasmGlue)
+    // The version comes from this header and the Gradle version, so either
+    // bump must re-stage.
+    inputs.file(imageDir.resolve("include/SDL3_image/SDL_image.h"))
+    inputs.property("npmPackageVersion", npmPackageVersion)
+    inputs.file(File(wasmModuleOutput, "sdl_image_wasm.js"))
+    inputs.file(File(wasmModuleOutput, "sdl_image_wasm.wasm"))
+    outputs.dir(wasmNpmDir)
+    doLast {
+        wasmNpmDir.deleteRecursively()
+        wasmNpmDir.mkdirs()
+        wasmGlue.copyTo(wasmNpmDir.resolve("sdl_image_glue.js"), overwrite = true)
+        File(wasmModuleOutput, "sdl_image_wasm.js").copyTo(wasmNpmDir.resolve("sdl_image_wasm.js"), overwrite = true)
+        File(wasmModuleOutput, "sdl_image_wasm.wasm").copyTo(wasmNpmDir.resolve("sdl_image_wasm.wasm"), overwrite = true)
+        wasmNpmDir.resolve("package.json").writeText(
+            """
+            {
+              "name": "@enaium/sdl-image-kmp",
+              "version": "$npmPackageVersion",
+              "description": "Emscripten-compiled SDL_image module and JS glue for the sdl-image-kmp wasmJs target",
+              "license": "Zlib",
+              "type": "module",
+              "exports": {
+                ".": "./sdl_image_glue.js",
+                "./sdl_image_wasm.js": "./sdl_image_wasm.js",
+                "./package.json": "./package.json"
+              },
+              "files": ["sdl_image_glue.js", "sdl_image_wasm.js", "sdl_image_wasm.wasm"],
+              "homepage": "https://github.com/Enaium/sdl-image-kmp",
+              "repository": {
+                "type": "git",
+                "url": "git+https://github.com/Enaium/sdl-image-kmp.git"
+              }
+            }
+            """.trimIndent() + "\n",
+        )
+    }
+}
+
+tasks.register<Exec>("publishWasmNpm") {
+    group = "publishing"
+    description = "Publishes @enaium/sdl-image-kmp to npm (token: npm.publish.key)."
+    dependsOn("assembleWasmNpm")
+    workingDir = wasmNpmDir
+    // The token lives in the user-level Gradle properties file
+    // (~/.gradle/gradle.properties, next to mavenCentralUsername and the
+    // signing.* entries); CI writes the same key there from a repository
+    // secret. `-Pnpm.publish.key=<token>` overrides it for one-off runs.
+    val npmKey = providers.gradleProperty("npm.publish.key")
+    doFirst {
+        val key = npmKey.orNull?.takeIf { it.isNotBlank() }
+            ?: throw GradleException(
+                "npm.publish.key is not set: add it to ~/.gradle/gradle.properties " +
+                    "or pass -Pnpm.publish.key=<token>",
+            )
+        // NODE_AUTH_TOKEN is expanded by npm through the environment, so the
+        // token never lands in the package.json/tarball; .npmrc is on npm's
+        // never-publish list anyway.
+        environment("NODE_AUTH_TOKEN", key)
+        wasmNpmDir.resolve(".npmrc").writeText(
+            "//registry.npmjs.org/:_authToken=\${NODE_AUTH_TOKEN}\n",
+        )
+    }
+    // The revision-bearing version (3.4.0-1) is a semver prerelease, so npm
+    // requires an explicit tag; `latest` keeps `npm i @enaium/sdl-image-kmp`
+    // working.
+    commandLine("npm", "publish", "--access", "public", "--tag", "latest")
 }

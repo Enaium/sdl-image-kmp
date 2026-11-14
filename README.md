@@ -93,6 +93,16 @@ fun main() {
 - **Surfaces/textures**: like sdl-ttf-kmp's surfaces, SDL_image's surfaces are NOT sdl-kmp's platform implementation, so APIs that downcast them (such as `SDLRenderer.createTextureFromSurface` and `SDLRenderer.renderTexture`) will reject them; upload with `renderer.createTexture` + `SDLTexture.update` instead and draw with the texture.
 - **Android**: building an `androidNative*` target requires an installed Android NDK (found under `$ANDROID_HOME/ndk`); the SDL_image static library is cross-compiled with its CMake toolchain.
 - **Headless / CI**: set `SDL_VIDEO_DRIVER=dummy` (hint or environment variable) to run without a display; image loading itself does not need video.
+- **WebAssembly (wasmJs)**: Kotlin/Wasm has no cinterop, so SDL3 + SDL_image are compiled to a standalone Emscripten module. It is a *different* wasm instance than sdl-kmp's, so pointers cannot cross; decoders convert to R8G8B8A8 and the pixels are copied into a surface created with sdl-kmp's `SDL.createSurface`. The returned `SDLSurface`/`SDLTexture` are therefore sdl-kmp's own objects and work with renderers, `renderTexture` and texture updates. GPU textures, `getClipboardImage`, `createAnimatedCursor` and the `*WithProperties` animation constructors are not available on wasm (they return null/0 and set an SDL error).
+  - The module and its JS glue ship as the **`@enaium/sdl-image-kmp`** npm package (`./gradlew :sdl-image-kmp:assembleWasmNpm` stages it in `sdl-image-kmp/build/npm`, `publishWasmNpm` releases it). An app imports it before the Kotlin/Wasm module runs and passes a canvas:
+    ```js
+    import { initSdlKmp } from '@enaium/sdl-kmp';
+    import { initSdlImageKmp } from '@enaium/sdl-image-kmp';
+
+    await initSdlKmp({ canvas });
+    await initSdlImageKmp({ canvas });   // before importing the Kotlin/Wasm module
+    ```
+  - Building the module needs the Emscripten SDK: pass `-Pwasm.emsdk=<path>` or set `EMSDK` (see `./gradlew :sdl-image-kmp:assembleWasmNpm`).
 
 ## Examples
 
@@ -108,6 +118,13 @@ SDL_VIDEO_DRIVER=dummy ./gradlew :examples:image_renderer:runDebugExecutableMaco
 
 # GPU demo (Metal/Vulkan/D3D12 device required)
 ./gradlew :examples:image_renderer:jvmRun --args="--gpu image.png"
+
+# Browser (wasmJs): stage the static app, then serve it
+./gradlew :examples:image_renderer:copyWebAssets -Pwasm.emsdk="$HOME/emsdk"
+(cd examples/image_renderer/build/browserApp && python3 -m http.server 8080)
+
+# Headless wasm run in Node (same app directory)
+(cd examples/image_renderer/build/browserApp && node browser-node-test.mjs)
 ```
 
 Controls: `ESC` quit.

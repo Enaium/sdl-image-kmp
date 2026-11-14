@@ -262,3 +262,59 @@ jobs:
           name: test-reports-windows
           path: sdl-image-kmp/build/reports/tests
           if-no-files-found: ignore
+
+  test-web:
+    name: Test Web (wasmJs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Emscripten SDK
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install latest
+          "$HOME/emsdk/emsdk" activate latest
+          "$HOME/emsdk/emsdk" construct_env
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the wasm module and the npm package
+        run: ./gradlew --no-daemon --stacktrace -Pwasm.emsdk="$HOME/emsdk" :sdl-image-kmp:assembleWasmNpm
+
+      - name: Run the WASM module smoke test
+        working-directory: sdl-image-kmp/build/npm
+        run: |
+          cat > wasm-smoke.mjs <<'JS'
+          import { initSdlImageKmp } from './sdl_image_glue.js';
+          const png = Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+            'base64');
+          await initSdlImageKmp();
+          const s = sdl_image_kmp_Load(new Int8Array(png), null);
+          if (!s) throw new Error('decode failed: ' + sdl_image_kmp_GetError());
+          if (sdl_image_kmp_SurfaceWidth(s) !== 1) throw new Error('bad width');
+          if (sdl_image_kmp_Is(new Int8Array(png), 'png') !== 1) throw new Error('isPNG failed');
+          const px = new Int8Array(Array.from(sdlImageKmpHeapBytes(sdl_image_kmp_SurfacePixels(s), 4)));
+          const out = sdl_image_kmp_Encode(px, 1, 1, 4, 'png', 0);
+          if (!out || sdlImageKmpResultI32Get(0) < 8) throw new Error('encode failed');
+          sdl_image_kmp_Free(out);
+          sdl_image_kmp_SurfaceFree(s);
+          console.log('WASM MODULE SMOKE OK');
+          JS
+          node wasm-smoke.mjs
+
+      # The browser example additionally needs @enaium/sdl-kmp from the npm
+      # registry; it is exercised manually (see README) until that package
+      # carries the wasm IO fix.

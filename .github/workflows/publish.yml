@@ -19,6 +19,10 @@ name: Publish
 #                    with the embedded static library built via the Android
 #                    NDK)
 #   windows-latest -> sdl-image-kmp-jni-jvm-windows-x86_64 (native MinGW build)
+#   ubuntu-latest -> :sdl-image-kmp wasmJs klib + the @enaium/sdl-image-kmp
+#                    npm package (Emscripten-compiled SDL3 + SDL_image module
+#                    sdl_image_wasm.js/.wasm + sdl_image_glue.js; the wasmJs
+#                    target has no cinterop)
 #
 # The kotlinMultiplatform metadata module (published from macOS) redirects to
 # the per-target klib modules, so all of them must be published before
@@ -253,3 +257,61 @@ jobs:
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+
+  publish-wasm-npm:
+    name: Publish wasmJs klib + npm package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Emscripten SDK
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install latest
+          "$HOME/emsdk/emsdk" activate latest
+          "$HOME/emsdk/emsdk" construct_env
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: false
+
+      - name: Decode signing key
+        run: |
+          echo "${{ secrets.SIGNING_KEY }}" | tr -d ' \n' | base64 -d > "$RUNNER_TEMP/signing-key.gpg"
+          ls -la "$RUNNER_TEMP/signing-key.gpg"
+          head -c 16 "$RUNNER_TEMP/signing-key.gpg" | od -c | head -2
+
+      - name: Publish the wasmJs klib
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          -Pwasm.emsdk="$HOME/emsdk"
+          -Psigning.keyId="${{ secrets.SIGNING_KEY_ID }}"
+          -Psigning.secretKeyRingFile="${{ runner.temp }}/signing-key.gpg"
+          -Psigning.password="${{ secrets.SIGNING_PASSWORD }}"
+          :sdl-image-kmp:publishWasmJsPublicationToMavenCentralRepository
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+
+      - name: Publish the @enaium/sdl-image-kmp npm package
+        run: |
+          install -d "$HOME/.gradle"
+          printf 'npm.publish.key=%s\n' "$NPM_PUBLISH_KEY" >> "$HOME/.gradle/gradle.properties"
+          ./gradlew --no-daemon --stacktrace -Pwasm.emsdk="$HOME/emsdk" :sdl-image-kmp:publishWasmNpm
+        env:
+          NPM_PUBLISH_KEY: ${{ secrets.NPM_PUBLISH_KEY }}

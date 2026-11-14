@@ -112,7 +112,14 @@ class ImageDemo(
 
     private fun uploadFrame() {
         val src = animation?.frames?.getOrNull(frame) ?: surface
-        surfaceTexture.update(null, src.pixels, src.pitch)
+        // Surfaces expose their pixels only while locked (that is also how the
+        // wasm backend maps the Emscripten heap), so lock around the copy.
+        if (!src.lock()) error("SDL_LockSurface failed: ${SDL.error()}")
+        try {
+            surfaceTexture.update(null, src.pixels, src.pitch)
+        } finally {
+            src.unlock()
+        }
     }
 
     /** Returns true while the demo should keep running. */

@@ -48,3 +48,6 @@ bin/
 sdl-image-kmp-demo.png
 sdl-image-kmp-demo.jpg
 sdl-image-kmp-demo.gif
+# example npm installs (wasm browser runner)
+examples/*/node_modules/
+examples/*/package-lock.json

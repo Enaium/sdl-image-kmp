@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>sdl-image-kmp image_renderer (wasm)</title>
+    <style>
+        body {
+            margin: 0;
+            background: #121218;
+            color: #ddd;
+            font-family: system-ui, sans-serif;
+            overflow: hidden;
+        }
+        #canvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script type="importmap">
+    {
+        "imports": {
+            "@enaium/sdl-kmp": "./node_modules/@enaium/sdl-kmp/sdl_kmp_glue.js",
+            "@enaium/sdl-image-kmp": "./node_modules/@enaium/sdl-image-kmp/sdl_image_glue.js"
+        }
+    }
+</script>
+<script type="module">
+    import { initSdlKmp } from '@enaium/sdl-kmp';
+    import { initSdlImageKmp } from '@enaium/sdl-image-kmp';
+
+    // 1. Compile and instantiate the Emscripten SDL3 module (renderer,
+    //    surfaces) and the SDL_image module (decoders/encoders). The glues
+    //    expose the sdl_kmp_* / sdl_image_kmp_* functions the Kotlin wasmJs
+    //    actuals call. SDL3's Emscripten driver finds the canvas through the
+    //    #canvas selector.
+    const canvas = document.getElementById('canvas');
+    canvas.width = 800;
+    canvas.height = 600;
+    await initSdlKmp({ canvas });
+    await initSdlImageKmp({ canvas });
+
+    // 2. Import the Kotlin/Wasm module; its runtime auto-invokes main().
+    await import('./sdl-image-kmp-examples-image_renderer.mjs');
+</script>
+</body>
+</html>

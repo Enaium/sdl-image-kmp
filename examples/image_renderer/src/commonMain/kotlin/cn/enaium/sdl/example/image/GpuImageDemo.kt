@@ -90,7 +90,12 @@ class GpuImageDemo(
         // full size; upload only the overlapping region.
         val width = minOf(src.width, loaded.width)
         val height = minOf(src.height, loaded.height)
-        val ok = loaded.texture.upload(src.pixels, src.pitch, 0, 0, width, height)
+        if (!src.lock()) error("SDL_LockSurface failed: ${SDL.error()}")
+        val ok = try {
+            loaded.texture.upload(src.pixels, src.pitch, 0, 0, width, height)
+        } finally {
+            src.unlock()
+        }
         check(ok) { "GPU texture upload failed: ${SDLImage.error()}" }
     }
 
