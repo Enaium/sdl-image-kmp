@@ -51,3 +51,6 @@ sdl-image-kmp-demo.gif
 # example npm installs (wasm browser runner)
 examples/*/node_modules/
 examples/*/package-lock.json
+
+# local SDK paths (sdk.dir)
+local.properties
