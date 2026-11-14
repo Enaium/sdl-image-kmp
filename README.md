@@ -23,7 +23,7 @@ Formats: PNG, JPG (via stb_image), WebP, TIFF, BMP, GIF, CUR/ICO, LBM, PCX, PNM,
 
 ## Usage
 
-The published version requires [sdl-kmp](https://github.com/Enaium/sdl-kmp) `1.0.12` (it is an `api` dependency, pulled in automatically). GPU textures loaded by this binding reuse sdl-kmp's GPU texture implementation (`SDLGPUDevice.adoptTexture`), so `upload`/`download`/`blit` work on them like they do on sdl-kmp's own textures.
+The published version requires [sdl-kmp](https://github.com/Enaium/sdl-kmp) `3.4.18.2` (it is an `api` dependency, pulled in automatically). GPU textures loaded by this binding reuse sdl-kmp's GPU texture implementation (`SDLGPUDevice.adoptTexture`), so `upload`/`download`/`blit` work on them like they do on sdl-kmp's own textures.
 
 `build.gradle.kts`:
 
@@ -31,7 +31,7 @@ The published version requires [sdl-kmp](https://github.com/Enaium/sdl-kmp) `1.0
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("cn.enaium.sdl:sdl-image-kmp:1.0.1")
+            implementation("cn.enaium.sdl:sdl-image-kmp:3.4.8.2")
         }
     }
 }

@@ -203,7 +203,7 @@ kotlin {
                 // SDL3 bindings; exposed as `api` because the public API
                 // (SDLSurface, SDLTexture, SDLRenderer, SDLIOStream, ...)
                 // references the cn.enaium.sdl types.
-                api("cn.enaium.sdl:sdl-kmp:1.0.12")
+                api("cn.enaium.sdl:sdl-kmp:3.4.18.2")
             }
         }
 
@@ -577,9 +577,9 @@ val sdlImageVersion: String by lazy {
 }
 
 val npmPackageVersion: String by lazy {
-    // SDL-aligned versions (3.4.8.2) become 3.4.8-2; a plain three-component
-    // library version (1.0.1) is appended whole so the npm package stays
-    // unique per release (3.4.8-1.0.1).
+    // The SDL_image release plus the library revision: 3.4.8.2 becomes
+    // 3.4.8-2 (npm only accepts three-component semver). A plain
+    // three-component version is appended whole so the package stays unique.
     val parts = rootProject.version.toString().split('.')
     val revision = if (parts.size > 3) parts.drop(3).joinToString(".") else parts.joinToString(".")
     "$sdlImageVersion-$revision"
