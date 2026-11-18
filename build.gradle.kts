@@ -5,5 +5,6 @@ plugins {
 
 allprojects {
     group = "cn.enaium.sdl"
-    version = "3.4.8.2"
+    // <this library's version>-fixed.<pinned SDL_image release>
+    version = "1.0.2-fixed.3.4.8"
 }

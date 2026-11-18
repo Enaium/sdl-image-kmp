@@ -577,12 +577,11 @@ val sdlImageVersion: String by lazy {
 }
 
 val npmPackageVersion: String by lazy {
-    // The SDL_image release plus the library revision: 3.4.8.2 becomes
-    // 3.4.8-2 (npm only accepts three-component semver). A plain
-    // three-component version is appended whole so the package stays unique.
-    val parts = rootProject.version.toString().split('.')
-    val revision = if (parts.size > 3) parts.drop(3).joinToString(".") else parts.joinToString(".")
-    "$sdlImageVersion-$revision"
+    // The Gradle version already reads <this library's version>-fixed.<pinned
+    // SDL_image release> (1.0.2-fixed.3.4.8), which is valid semver: npm takes
+    // it verbatim, and the `fixed.*` prerelease suffix is published under the
+    // `latest` tag.
+    rootProject.version.toString()
 }
 
 val wasmNpmDir = layout.buildDirectory.dir("npm").get().asFile
@@ -601,6 +600,11 @@ tasks.register("assembleWasmNpm") {
     inputs.file(File(wasmModuleOutput, "sdl_image_wasm.wasm"))
     outputs.dir(wasmNpmDir)
     doLast {
+        // The version string claims the pinned SDL_image release; fail rather
+        // than publish a version that names a different one.
+        check(npmPackageVersion.endsWith("-fixed.$sdlImageVersion")) {
+            "version $npmPackageVersion does not pin the vendored SDL_image $sdlImageVersion"
+        }
         wasmNpmDir.deleteRecursively()
         wasmNpmDir.mkdirs()
         wasmGlue.copyTo(wasmNpmDir.resolve("sdl_image_glue.js"), overwrite = true)
@@ -655,8 +659,7 @@ tasks.register<Exec>("publishWasmNpm") {
             "//registry.npmjs.org/:_authToken=\${NODE_AUTH_TOKEN}\n",
         )
     }
-    // The revision-bearing version (3.4.0-1) is a semver prerelease, so npm
-    // requires an explicit tag; `latest` keeps `npm i @enaium/sdl-image-kmp`
-    // working.
+    // The version (1.0.2-fixed.3.4.8) is a semver prerelease, so npm requires
+    // an explicit tag; `latest` keeps `npm i @enaium/sdl-image-kmp` working.
     commandLine("npm", "publish", "--access", "public", "--tag", "latest")
 }
