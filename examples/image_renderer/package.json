@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Browser runner for the sdl-image-kmp image_renderer example",
   "dependencies": {
-    "@enaium/sdl-kmp": "^3.4.18-2",
+    "@enaium/sdl-kmp": "^1.0.14-fixed.3.4.18",
     "@enaium/sdl-image-kmp": "file:../../sdl-image-kmp/build/npm"
   }
 }

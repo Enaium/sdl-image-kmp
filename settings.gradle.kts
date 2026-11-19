@@ -21,7 +21,7 @@ dependencyResolutionManagement {
 rootProject.name = "sdl-image-kmp"
 
 // sdl-kmp provides the SDL3 bindings sdl-image-kmp builds on; the published
-// artifacts (cn.enaium.sdl:sdl-kmp:3.4.18.2) are resolved from Maven Central
+// artifacts (cn.enaium.sdl:sdl-kmp:1.0.14-fixed.3.4.18) are resolved from Maven Central
 // (see the `api` dependency in sdl-image-kmp/build.gradle.kts).
 
 include(":sdl-image-kmp")
