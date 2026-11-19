@@ -203,7 +203,7 @@ kotlin {
                 // SDL3 bindings; exposed as `api` because the public API
                 // (SDLSurface, SDLTexture, SDLRenderer, SDLIOStream, ...)
                 // references the cn.enaium.sdl types.
-                api("cn.enaium.sdl:sdl-kmp:3.4.18.2")
+                api(libs.sdl.kmp)
             }
         }
 
